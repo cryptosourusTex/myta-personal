@@ -1,0 +1,15 @@
+name = "myta-personal"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Set ANTHROPIC_API_KEY in Cloudflare dashboard as a secret, not here
+# Run: wrangler secret put ANTHROPIC_API_KEY
+
+[[r2_buckets]]
+binding = "VAULT"
+bucket_name = "myta-vault"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "myta"
+database_id = "" # filled after `wrangler d1 create myta`

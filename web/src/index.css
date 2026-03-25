@@ -1,0 +1,11 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #fafafa;
+  color: #1a1a2e;
+  -webkit-font-smoothing: antialiased;
+}
