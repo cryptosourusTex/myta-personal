@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import userRoutes from './routes/user';
+import canvasRoutes from './routes/canvas';
 
 export type Env = {
   DB: D1Database;
@@ -20,8 +21,10 @@ app.get('/api/health', (c) => {
 // User / auth routes
 app.route('/api/user', userRoutes);
 
+// Canvas sync routes
+app.route('/api/canvas', canvasRoutes);
+
 // Placeholder routes — each module will add its own
-app.all('/api/canvas/*', (c) => c.json({ error: 'Canvas module not yet built' }, 501));
 app.all('/api/attendance/*', (c) => c.json({ error: 'Attendance module not yet built' }, 501));
 app.all('/api/grading/*', (c) => c.json({ error: 'Grading module not yet built' }, 501));
 app.all('/api/assistant/*', (c) => c.json({ error: 'Assistant module not yet built' }, 501));
