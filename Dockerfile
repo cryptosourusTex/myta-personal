@@ -23,8 +23,15 @@ RUN npm run build --workspace=web
 # Build server
 RUN npm run build --workspace=server
 
+# Copy schema.sql to dist (needed at runtime)
+RUN cp server/src/db/schema.sql server/dist/db/schema.sql
+
 # Create data directories
 RUN mkdir -p /data/vault
+
+ENV DB_PATH=/data/myta.db
+ENV CONFIG_PATH=/app/config.yml
+ENV WEB_DIST=./web/dist
 
 EXPOSE 3000
 

@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "myta-server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "server/src/index.ts"],
+      "port": 3456,
+      "env": {
+        "DB_PATH": "./data/myta.db",
+        "CONFIG_PATH": "./config.yml"
+      }
+    }
+  ]
+}
