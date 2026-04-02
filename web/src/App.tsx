@@ -10,12 +10,23 @@ import Settings from './pages/Settings';
 
 export default function App() {
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
 
   useEffect(() => {
     api.getConfig()
       .then((cfg) => setSetupComplete(cfg.setup_complete))
-      .catch(() => setSetupComplete(false));
+      .catch((err) => {
+        if ((err as any).status === 401) {
+          setAuthRequired(true);
+        } else {
+          setSetupComplete(false);
+        }
+      });
   }, []);
+
+  if (authRequired) {
+    return <div className="loading">Authentication required. Please refresh and enter your credentials.</div>;
+  }
 
   if (setupComplete === null) {
     return <div className="loading">Loading...</div>;

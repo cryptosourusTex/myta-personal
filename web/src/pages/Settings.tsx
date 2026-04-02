@@ -16,12 +16,21 @@ export default function Settings() {
   const [encryption, setEncryption] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  const [gradingModel, setGradingModel] = useState('');
+  const [qaModel, setQaModel] = useState('');
+
   useEffect(() => {
     api.getConfig().then((cfg) => {
       setLlmEndpoint(cfg.llm.endpoint);
       setLlmModel(cfg.llm.model);
       setCanvasDomain(cfg.canvas.domain);
       setEncryption(cfg.storage.encryption);
+      setGradingModel(cfg.grading_model || '');
+      setQaModel(cfg.qa_model || '');
+    }).catch(() => {});
+    api.getModels().then((result) => {
+      if (result.ok) setAvailableModels(result.models);
     }).catch(() => {});
   }, []);
 
@@ -33,6 +42,8 @@ export default function Settings() {
       canvas_domain: canvasDomain,
       ...(canvasToken ? { canvas_token: canvasToken } : {}),
       storage_encryption: String(encryption),
+      ...(gradingModel ? { grading_model: gradingModel } : {}),
+      ...(qaModel ? { qa_model: qaModel } : {}),
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -70,6 +81,25 @@ export default function Settings() {
         <h2>AI Model</h2>
         <label>Endpoint URL<input type="text" value={llmEndpoint} onChange={(e) => setLlmEndpoint(e.target.value)} /></label>
         <label>Model Name<input type="text" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} /></label>
+        {availableModels.length > 0 && (
+          <div style={{ background: '#f5f5f5', padding: '0.75rem', borderRadius: 6, marginTop: '0.5rem' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Per-task model override (optional)</div>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <label style={{ flex: 1, minWidth: '200px' }}>Grading
+                <select value={gradingModel} onChange={(e) => setGradingModel(e.target.value)}>
+                  <option value="">Use default ({llmModel})</option>
+                  {availableModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                </select>
+              </label>
+              <label style={{ flex: 1, minWidth: '200px' }}>Q&A Assistant
+                <select value={qaModel} onChange={(e) => setQaModel(e.target.value)}>
+                  <option value="">Use default ({llmModel})</option>
+                  {availableModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                </select>
+              </label>
+            </div>
+          </div>
+        )}
         <label>API Key <span className="optional">(leave blank to keep current)</span><input type="password" value={llmApiKey} onChange={(e) => setLlmApiKey(e.target.value)} placeholder="unchanged" /></label>
         <button onClick={testLLM} disabled={llmTesting} className="btn btn-primary">{llmTesting ? 'Testing...' : 'Test Connection'}</button>
         {llmStatus && <div className={`status-msg ${llmStatus.ok ? 'success' : 'error'}`}>{llmStatus.ok ? `Connected to ${llmStatus.model} (${llmStatus.latency_ms}ms)` : `Error: ${llmStatus.error}`}</div>}

@@ -4,3 +4,4 @@ data/
 *.db
 .DS_Store
 config.yml
+backups/

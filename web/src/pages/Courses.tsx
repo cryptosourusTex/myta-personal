@@ -165,9 +165,13 @@ function AttendancePage() {
   const [activeSession, setActiveSession] = useState<any>(null);
   const [recording, setRecording] = useState(false);
   const [voiceResult, setVoiceResult] = useState('');
+  const [analytics, setAnalytics] = useState<any>(null);
 
   useEffect(() => {
-    if (courseId) loadSessions();
+    if (courseId) {
+      loadSessions();
+      api.getAttendanceAnalytics(courseId).then(setAnalytics).catch(() => {});
+    }
   }, [courseId]);
 
   const loadSessions = () => {
@@ -243,6 +247,31 @@ function AttendancePage() {
       {!activeSession ? (
         <div>
           <button onClick={createSession} className="btn btn-primary" style={{ marginBottom: '1rem' }}>New Session (Today)</button>
+          {analytics && analytics.sessions_count > 0 && (
+            <div style={{ background: 'white', border: '1px solid #e5e5e5', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+              <h2 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Analytics ({analytics.sessions_count} sessions)</h2>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: analytics.course_attendance_rate >= 90 ? '#2d8a4e' : analytics.course_attendance_rate >= 70 ? '#c47f17' : '#c53030', marginBottom: '0.75rem' }}>
+                {analytics.course_attendance_rate}% course attendance
+              </div>
+              <table className="vault-table" style={{ fontSize: '0.85rem' }}>
+                <thead>
+                  <tr><th>Student</th><th>Present</th><th>Absent</th><th>Late</th><th>Rate</th><th>Streak</th></tr>
+                </thead>
+                <tbody>
+                  {analytics.students.map((s: any) => (
+                    <tr key={s.id}>
+                      <td>{s.name}</td>
+                      <td>{s.present}</td>
+                      <td style={{ color: s.absent > 0 ? '#c53030' : undefined }}>{s.absent}</td>
+                      <td>{s.late}</td>
+                      <td style={{ color: s.attendance_rate >= 90 ? '#2d8a4e' : s.attendance_rate >= 70 ? '#c47f17' : '#c53030', fontWeight: 600 }}>{s.attendance_rate}%</td>
+                      <td>{s.current_streak > 0 ? `${s.current_streak} days` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {sessions.map((s) => (
             <div key={s.id} onClick={() => loadSession(s.id)} style={{ padding: '0.75rem', background: 'white', border: '1px solid #e5e5e5', borderRadius: 8, marginBottom: '0.5rem', cursor: 'pointer' }}>
               {s.date} {s.finalized ? '(finalized)' : ''}
@@ -462,6 +491,7 @@ function GradingPage() {
     <div className="page">
       <Link to={`/courses/${courseId}`} style={{ color: '#1F3864', fontSize: '0.875rem' }}>Back to course</Link>
       <h1 style={{ marginTop: '0.5rem' }}>Grading</h1>
+      <a href={api.exportCourseGrades(courseId!)} className="btn btn-secondary btn-small" style={{ textDecoration: 'none', marginBottom: '1rem', display: 'inline-block' }}>Export All Grades (CSV)</a>
 
       <h2 style={{ fontSize: '1rem', marginTop: '1rem' }}>Rubrics</h2>
       <button onClick={() => setShowNewRubric(!showNewRubric)} className="btn btn-secondary btn-small" style={{ marginBottom: '0.5rem' }}>New Rubric</button>

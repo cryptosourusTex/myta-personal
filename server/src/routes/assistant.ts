@@ -20,7 +20,7 @@ assistantRoutes.post('/answer', async (c) => {
     return row?.value;
   };
   const endpoint = getVal('llm_endpoint') || getConfig().llm.endpoint;
-  const model = getVal('llm_model') || getConfig().llm.model;
+  const model = getVal('qa_model') || getVal('llm_model') || getConfig().llm.model;
   const apiKey = getVal('llm_api_key') || getConfig().llm.api_key || 'none';
 
   const docsText = document_contents.map((d: any) => `--- ${d.name || 'Document'} ---\n${d.text}`).join('\n\n');

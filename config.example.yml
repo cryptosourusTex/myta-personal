@@ -24,3 +24,8 @@ server:
 accessibility:
   voice_input: true                     # dictation on attendance + grading
   voice_readback: false                 # TTS for Q&A draft answers
+
+auth:
+  enabled: false                        # set true + credentials to require login
+  username: ""
+  password: ""

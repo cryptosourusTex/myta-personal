@@ -170,7 +170,7 @@ gradingRoutes.post('/grading/sessions/:sessionId/suggest/:studentId', async (c) 
     return row?.value;
   };
   const endpoint = getVal('llm_endpoint') || getConfig().llm.endpoint;
-  const model = getVal('llm_model') || getConfig().llm.model;
+  const model = getVal('grading_model') || getVal('llm_model') || getConfig().llm.model;
   const apiKey = getVal('llm_api_key') || getConfig().llm.api_key || 'none';
 
   const client = new OpenAI({ baseURL: endpoint, apiKey });
@@ -290,6 +290,59 @@ gradingRoutes.get('/grading/sessions/:id/export', (c) => {
       'Content-Type': 'text/csv',
       'Content-Disposition': `attachment; filename="grades-${id}.csv"`,
       'X-Unapproved-Count': String(unapproved.count),
+    },
+  });
+});
+
+// Batch export: all approved grades for a course
+gradingRoutes.get('/grading/export/course/:courseId', (c) => {
+  const courseId = c.req.param('courseId');
+  const db = getDb();
+
+  const items = db.prepare(`
+    SELECT s.name as student_name, s.email as student_email,
+           a.name as assignment_name, rc.title as criterion,
+           gi.final_score, gi.final_comment, rc.points_possible
+    FROM grade_item gi
+    JOIN grading_session gs ON gs.id = gi.session_id
+    JOIN assignment a ON a.id = gs.assignment_id
+    JOIN student s ON s.id = gi.student_id
+    JOIN rubric_criterion rc ON rc.id = gi.criterion_id
+    WHERE a.course_id = ? AND gi.status = 'approved'
+    ORDER BY s.name, a.name, rc.sort_order
+  `).all(courseId) as any[];
+
+  // Also build a summary row per student per assignment (total score)
+  const summaryMap = new Map<string, { name: string; email: string; assignment: string; total: number; possible: number }>();
+  for (const item of items) {
+    const key = `${item.student_name}|${item.assignment_name}`;
+    if (!summaryMap.has(key)) {
+      summaryMap.set(key, { name: item.student_name, email: item.student_email || '', assignment: item.assignment_name, total: 0, possible: 0 });
+    }
+    const entry = summaryMap.get(key)!;
+    entry.total += item.final_score;
+    entry.possible += item.points_possible;
+  }
+
+  // Build detailed CSV
+  const csv = ['student_name,student_email,assignment,criterion,final_score,points_possible,final_comment'];
+  for (const item of items) {
+    csv.push(`"${item.student_name}","${item.student_email || ''}","${item.assignment_name}","${item.criterion}",${item.final_score},${item.points_possible},"${(item.final_comment || '').replace(/"/g, '""')}"`);
+  }
+
+  // Add summary section
+  csv.push('');
+  csv.push('# Summary: Total scores per student per assignment');
+  csv.push('student_name,student_email,assignment,total_score,total_possible,percentage');
+  for (const entry of summaryMap.values()) {
+    const pct = entry.possible > 0 ? ((entry.total / entry.possible) * 100).toFixed(1) : '0.0';
+    csv.push(`"${entry.name}","${entry.email}","${entry.assignment}",${entry.total},${entry.possible},${pct}%`);
+  }
+
+  return new Response(csv.join('\n'), {
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="grades-course-${courseId}.csv"`,
     },
   });
 });

@@ -1,0 +1,25 @@
+# MyTA Personal — HTTPS reverse proxy
+# Usage: caddy run --config Caddyfile
+#
+# For Tailscale HTTPS (recommended):
+#   Replace "localhost" with your Tailscale machine name
+#   e.g., myta.tail12345.ts.net
+#
+# For custom domain with automatic Let's Encrypt:
+#   Replace "localhost" with your domain
+#   e.g., myta.example.com
+#
+# NOTE: When running via Docker Compose, change "localhost:3000"
+# to "myta:3000" (the Docker service name) below.
+
+localhost {
+    reverse_proxy localhost:3000
+
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+}

@@ -191,4 +191,71 @@ function fuzzyMatch(a: string, b: string): number {
   return dp[m][n];
 }
 
+// Attendance analytics for a course
+attendanceRoutes.get('/analytics/:courseId', (c) => {
+  const courseId = c.req.param('courseId');
+  const db = getDb();
+
+  // Get all sessions for the course
+  const sessions = db.prepare(
+    'SELECT id, date FROM attendance_session WHERE course_id = ? ORDER BY date'
+  ).all(courseId) as any[];
+
+  if (sessions.length === 0) {
+    return c.json({ sessions_count: 0, students: [], session_dates: [] });
+  }
+
+  // Get all students
+  const students = db.prepare('SELECT id, name FROM student WHERE course_id = ? ORDER BY name').all(courseId) as any[];
+
+  // Get all records for these sessions
+  const sessionIds = sessions.map((s: any) => s.id);
+  const placeholders = sessionIds.map(() => '?').join(',');
+  const records = db.prepare(`
+    SELECT ar.student_id, ar.status, ass.date
+    FROM attendance_record ar
+    JOIN attendance_session ass ON ass.id = ar.session_id
+    WHERE ar.session_id IN (${placeholders})
+  `).all(...sessionIds) as any[];
+
+  // Build per-student analytics
+  const studentAnalytics = students.map((student: any) => {
+    const studentRecords = records.filter((r: any) => r.student_id === student.id);
+    const counts = { present: 0, absent: 0, late: 0, excused: 0 };
+    for (const r of studentRecords) {
+      if (r.status in counts) counts[r.status as keyof typeof counts]++;
+    }
+    const total = studentRecords.length || 1;
+    const attendanceRate = ((counts.present + counts.late + counts.excused) / total * 100).toFixed(1);
+
+    // Calculate current streak (consecutive present/late from most recent)
+    const sorted = studentRecords.sort((a: any, b: any) => b.date.localeCompare(a.date));
+    let streak = 0;
+    for (const r of sorted) {
+      if (r.status === 'present' || r.status === 'late') streak++;
+      else break;
+    }
+
+    return {
+      id: student.id,
+      name: student.name,
+      ...counts,
+      attendance_rate: parseFloat(attendanceRate),
+      current_streak: streak,
+    };
+  });
+
+  // Course-level summary
+  const totalPresent = studentAnalytics.reduce((sum, s) => sum + s.present, 0);
+  const totalRecords = records.length || 1;
+  const courseRate = ((records.filter((r: any) => r.status === 'present' || r.status === 'late' || r.status === 'excused').length / totalRecords) * 100).toFixed(1);
+
+  return c.json({
+    sessions_count: sessions.length,
+    session_dates: sessions.map((s: any) => s.date),
+    course_attendance_rate: parseFloat(courseRate),
+    students: studentAnalytics,
+  });
+});
+
 export default attendanceRoutes;

@@ -33,6 +33,8 @@ configRoutes.get('/', (c) => {
       voice_input: getConfig().accessibility.voice_input,
       voice_readback: getConfig().accessibility.voice_readback,
     },
+    grading_model: stored.grading_model || '',
+    qa_model: stored.qa_model || '',
     setup_complete: stored.setup_complete === 'true',
   });
 });
@@ -48,6 +50,7 @@ configRoutes.put('/', async (c) => {
     'canvas_domain', 'canvas_token',
     'storage_encryption',
     'setup_complete',
+    'grading_model', 'qa_model',
   ];
 
   const updates: string[] = [];
@@ -127,6 +130,35 @@ configRoutes.post('/test-canvas', async (c) => {
     });
   } catch (err: any) {
     return c.json({ ok: false, error: err.message || 'Connection failed' }, 500);
+  }
+});
+
+// List available models from the LLM endpoint
+configRoutes.get('/models', async (c) => {
+  const db = getDb();
+  const getVal = (key: string) => {
+    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value;
+  };
+  const endpoint = getVal('llm_endpoint') || getConfig().llm.endpoint;
+  const apiKey = getVal('llm_api_key') || getConfig().llm.api_key || 'none';
+
+  try {
+    const response = await fetch(`${endpoint}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) {
+      return c.json({ ok: false, error: `Failed to list models: ${response.status}` }, 500);
+    }
+    const data = await response.json() as any;
+    const models = (data.data || []).map((m: any) => ({
+      id: m.id,
+      name: m.id,
+      owned_by: m.owned_by || 'local',
+    }));
+    return c.json({ ok: true, models });
+  } catch (err: any) {
+    return c.json({ ok: false, error: err.message || 'Could not reach LLM endpoint' }, 500);
   }
 });
 

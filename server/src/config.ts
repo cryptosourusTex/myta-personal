@@ -23,6 +23,11 @@ export interface AppConfig {
     voice_input: boolean;
     voice_readback: boolean;
   };
+  auth: {
+    enabled: boolean;
+    username: string;
+    password: string;
+  };
 }
 
 const defaults: AppConfig = {
@@ -31,6 +36,7 @@ const defaults: AppConfig = {
   canvas: { domain: '' },
   server: { port: 3000, host: '0.0.0.0' },
   accessibility: { voice_input: true, voice_readback: false },
+  auth: { enabled: false, username: '', password: '' },
 };
 
 let cachedConfig: AppConfig | null = null;
@@ -55,5 +61,6 @@ export function loadConfig(): AppConfig {
     canvas: { ...defaults.canvas, ...parsed?.canvas },
     server: { ...defaults.server, ...parsed?.server },
     accessibility: { ...defaults.accessibility, ...parsed?.accessibility },
+    auth: { ...defaults.auth, ...parsed?.auth },
   };
 }

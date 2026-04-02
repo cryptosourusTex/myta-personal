@@ -6,6 +6,7 @@ import { getConfig } from './config.js';
 import { getDb } from './db/index.js';
 import { existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
+import { basicAuth } from './middleware/auth.js';
 import configRoutes from './routes/config.js';
 import vaultRoutes from './routes/vault.js';
 import canvasRoutes from './routes/canvas.js';
@@ -28,10 +29,13 @@ if (!existsSync(vaultPath)) {
 // CORS for dev
 app.use('/api/*', cors());
 
-// Health endpoint
+// Health endpoint (before auth — used for Docker health checks)
 app.get('/api/health', (c) => {
   return c.json({ status: 'ok', version: '1.0.0' });
 });
+
+// Auth middleware (after CORS, after health, before route handlers)
+app.use('/api/*', basicAuth);
 
 // API routes
 app.route('/api/config', configRoutes);
