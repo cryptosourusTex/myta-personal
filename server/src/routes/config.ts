@@ -117,7 +117,7 @@ configRoutes.post('/test-canvas', async (c) => {
     });
 
     if (!response.ok) {
-      return c.json({ ok: false, error: `Canvas API error: ${response.status}` }, response.status);
+      return c.json({ ok: false, error: `Canvas API error: ${response.status}` }, response.status as 400);
     }
 
     const courses = await response.json();

@@ -10,8 +10,8 @@ COPY package.json package-lock.json ./
 COPY server/package.json ./server/
 COPY web/package.json ./web/
 
-# Install dependencies
-RUN npm ci --workspace=server --workspace=web
+# Install all dependencies (root + workspaces)
+RUN npm ci
 
 # Copy source
 COPY server/ ./server/
