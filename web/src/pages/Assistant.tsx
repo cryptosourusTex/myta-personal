@@ -1,20 +1,15 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
+import type { Course, VaultAsset, AssistantResponse } from '../api';
 import { getStoredKey, decryptFile, hasStoredKey } from '../crypto';
 
-interface VaultAsset {
-  id: string;
-  name: string;
-  encrypted: number;
-}
-
 export default function Assistant() {
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
   const [assets, setAssets] = useState<VaultAsset[]>([]);
   const [selectedAssets, setSelectedAssets] = useState<Set<string>>(new Set());
   const [question, setQuestion] = useState('');
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<AssistantResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
@@ -78,19 +73,21 @@ export default function Assistant() {
         document_contents: docContents,
       });
       setResult(answer);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
 
   const startVoice = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as unknown as Record<string, unknown>;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SR) { setError('Speech recognition not supported'); return; }
-    const recognition = new SR();
+    const recognition = new (SR as { new(): { continuous: boolean; interimResults: boolean; onresult: ((e: { results: { 0: { 0: { transcript: string } } } }) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start: () => void } })();
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event) => {
       setQuestion(event.results[0][0].transcript);
       setRecording(false);
     };

@@ -47,9 +47,12 @@ vaultRoutes.post('/upload', async (c) => {
   const row = db.prepare('SELECT value FROM config WHERE key = ?').get('storage_encryption') as { value: string } | undefined;
   const encryptionEnabled = row?.value === 'true' || encrypted;
 
-  db.prepare(
+  const insertResult = db.prepare(
     'INSERT INTO vault_asset (id, name, type, course_id, file_path, size_bytes, encrypted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, file.name, file.type || 'application/octet-stream', courseId || null, filePath, buffer.length, encryptionEnabled ? 1 : 0, Date.now());
+  if (!insertResult.changes) {
+    return c.json({ error: 'Failed to create asset record' }, 500);
+  }
 
   return c.json({
     id,
@@ -97,9 +100,15 @@ vaultRoutes.delete('/assets/:id', (c) => {
     if (existsSync(assetDir)) {
       rmSync(assetDir, { recursive: true });
     }
-  } catch {}
+  } catch (err) {
+    // Log but continue — DB record cleanup below is more important than leftover files
+    process.stderr.write(`Warning: failed to remove vault file/dir for asset ${id}: ${err instanceof Error ? err.message : String(err)}\n`);
+  }
 
-  db.prepare('DELETE FROM vault_asset WHERE id = ?').run(id);
+  const result = db.prepare('DELETE FROM vault_asset WHERE id = ?').run(id);
+  if (!result.changes) {
+    return c.json({ error: 'Delete failed — asset row not removed' }, 500);
+  }
   return c.json({ deleted: id });
 });
 

@@ -1,22 +1,23 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
+import type { TestResult } from '../api';
 
 export default function Settings() {
   const [llmEndpoint, setLlmEndpoint] = useState('');
   const [llmModel, setLlmModel] = useState('');
   const [llmApiKey, setLlmApiKey] = useState('');
-  const [llmStatus, setLlmStatus] = useState<any>(null);
+  const [llmStatus, setLlmStatus] = useState<TestResult | null>(null);
   const [llmTesting, setLlmTesting] = useState(false);
 
   const [canvasDomain, setCanvasDomain] = useState('');
   const [canvasToken, setCanvasToken] = useState('');
-  const [canvasStatus, setCanvasStatus] = useState<any>(null);
+  const [canvasStatus, setCanvasStatus] = useState<TestResult | null>(null);
   const [canvasTesting, setCanvasTesting] = useState(false);
 
   const [encryption, setEncryption] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; owned_by: string }>>([])
   const [gradingModel, setGradingModel] = useState('');
   const [qaModel, setQaModel] = useState('');
 
@@ -30,7 +31,7 @@ export default function Settings() {
       setQaModel(cfg.qa_model || '');
     }).catch(() => {});
     api.getModels().then((result) => {
-      if (result.ok) setAvailableModels(result.models);
+      if (result.ok && result.models) setAvailableModels(result.models);
     }).catch(() => {});
   }, []);
 
@@ -55,8 +56,8 @@ export default function Settings() {
     await save();
     try {
       setLlmStatus(await api.testLLM());
-    } catch (err: any) {
-      setLlmStatus({ ok: false, error: err.message });
+    } catch (err: unknown) {
+      setLlmStatus({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
     setLlmTesting(false);
   };
@@ -67,8 +68,8 @@ export default function Settings() {
     await save();
     try {
       setCanvasStatus(await api.testCanvas());
-    } catch (err: any) {
-      setCanvasStatus({ ok: false, error: err.message });
+    } catch (err: unknown) {
+      setCanvasStatus({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
     setCanvasTesting(false);
   };

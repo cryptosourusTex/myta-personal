@@ -1,20 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import type { Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, AttendanceAnalytics, Rubric, Assignment, GradingSession, QueueItem, GradeItem } from '../api';
 
-interface Course {
-  id: string;
-  name: string;
-  term: string | null;
-  student_count: number;
-  synced_at: number;
-}
-
-interface Student {
-  id: string;
-  name: string;
-  email: string | null;
-  section: string | null;
+interface SpeechRecognitionEvent {
+  results: { [index: number]: { [index: number]: { transcript: string } } };
 }
 
 function CourseList() {
@@ -38,8 +28,8 @@ function CourseList() {
         setSyncResult(`Synced ${result.courses_synced} courses, ${result.students_synced} students`);
       }
       load();
-    } catch (err: any) {
-      setSyncResult(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      setSyncResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
     setSyncing(false);
   };
@@ -89,7 +79,7 @@ function CourseList() {
 
 function CourseDetail() {
   const { courseId } = useParams();
-  const [course, setCourse] = useState<any>(null);
+  const [course, setCourse] = useState<Course | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
@@ -161,11 +151,11 @@ export default function Courses() {
 
 function AttendancePage() {
   const { courseId } = useParams();
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [activeSession, setActiveSession] = useState<any>(null);
+  const [sessions, setSessions] = useState<AttendanceSession[]>([]);
+  const [activeSession, setActiveSession] = useState<(AttendanceSession & { records?: AttendanceRecord[] }) | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceResult, setVoiceResult] = useState('');
-  const [analytics, setAnalytics] = useState<any>(null);
+  const [analytics, setAnalytics] = useState<AttendanceAnalytics | null>(null);
 
   useEffect(() => {
     if (courseId) {
@@ -190,38 +180,39 @@ function AttendancePage() {
     setActiveSession(session);
   };
 
-  const cycleStatus = async (record: any) => {
+  const cycleStatus = async (record: AttendanceRecord) => {
     if (activeSession?.finalized) return;
     const order = ['absent', 'present', 'late', 'excused'];
     const next = order[(order.indexOf(record.status) + 1) % order.length];
     await api.updateAttendanceRecord(record.id, { status: next, source: 'manual' });
-    loadSession(activeSession.id);
+    loadSession(activeSession!.id);
   };
 
   const finalize = async () => {
     if (!confirm('Finalize this attendance session? This locks the records.')) return;
-    await api.finalizeAttendance(activeSession.id);
-    loadSession(activeSession.id);
+    await api.finalizeAttendance(activeSession!.id);
+    loadSession(activeSession!.id);
     loadSessions();
   };
 
   const startVoice = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     if (!SR) { setVoiceResult('Speech recognition not supported'); return; }
-    const recognition = new SR();
+    const SRConstructor = SR as { new(): { continuous: boolean; interimResults: boolean; onresult: ((event: SpeechRecognitionEvent) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start: () => void } };
+    const recognition = new SRConstructor();
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.onresult = async (event: any) => {
+    recognition.onresult = async (event: SpeechRecognitionEvent) => {
       const command = event.results[0][0].transcript;
       setVoiceResult(`Heard: "${command}"`);
-      const result = await api.processVoiceCommand(activeSession.id, command);
+      const result = await api.processVoiceCommand(activeSession!.id, command);
       if (result.actions_taken?.length) {
-        setVoiceResult(`${result.actions_taken.map((a: any) => `${a.name}: ${a.new_status}`).join(', ')}`);
+        setVoiceResult(`${result.actions_taken.map((a: VoiceResult['actions_taken'][number]) => `${a.name}: ${a.new_status}`).join(', ')}`);
       }
       if (result.unmatched?.length) {
         setVoiceResult((v) => v + ` | Unmatched: ${result.unmatched.join(', ')}`);
       }
-      loadSession(activeSession.id);
+      loadSession(activeSession!.id);
       setRecording(false);
     };
     recognition.onerror = () => { setRecording(false); setVoiceResult('Voice error'); };
@@ -234,7 +225,7 @@ function AttendancePage() {
     present: '#dcfce7', absent: '#fee2e2', late: '#fef3c7', excused: '#dbeafe',
   };
 
-  const counts = activeSession?.records?.reduce((acc: any, r: any) => {
+  const counts = activeSession?.records?.reduce((acc: Record<string, number>, r: AttendanceRecord) => {
     acc[r.status] = (acc[r.status] || 0) + 1;
     return acc;
   }, {} as Record<string, number>) || {};
@@ -258,7 +249,7 @@ function AttendancePage() {
                   <tr><th>Student</th><th>Present</th><th>Absent</th><th>Late</th><th>Rate</th><th>Streak</th></tr>
                 </thead>
                 <tbody>
-                  {analytics.students.map((s: any) => (
+                  {analytics.students.map((s: AttendanceAnalytics['students'][number]) => (
                     <tr key={s.id}>
                       <td>{s.name}</td>
                       <td>{s.present}</td>
@@ -298,7 +289,7 @@ function AttendancePage() {
           {voiceResult && <div className="status-msg info" style={{ marginBottom: '0.75rem' }}>{voiceResult}</div>}
 
           <div className="attendance-grid">
-            {activeSession.records?.map((r: any) => (
+            {activeSession.records?.map((r: AttendanceRecord) => (
               <div
                 key={r.id}
                 onClick={() => cycleStatus(r)}
@@ -320,12 +311,12 @@ function AttendancePage() {
 
 function GradingPage() {
   const { courseId } = useParams();
-  const [rubrics, setRubrics] = useState<any[]>([]);
-  const [assignments, setAssignments] = useState<any[]>([]);
-  const [activeSession, setActiveSession] = useState<any>(null);
-  const [queue, setQueue] = useState<any[]>([]);
-  const [activeStudent, setActiveStudent] = useState<any>(null);
-  const [gradeItems, setGradeItems] = useState<any[]>([]);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [activeSession, setActiveSession] = useState<GradingSession | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [activeStudent, setActiveStudent] = useState<QueueItem | null>(null);
+  const [gradeItems, setGradeItems] = useState<GradeItem[]>([]);
   const [submissionText, setSubmissionText] = useState('');
   const [suggesting, setSuggesting] = useState(false);
 
@@ -342,7 +333,7 @@ function GradingPage() {
   useEffect(() => {
     if (courseId) {
       api.getRubrics(courseId).then(setRubrics).catch(() => {});
-      fetch(`/api/assignments?course_id=${courseId}`).then(r => r.json()).then(setAssignments).catch(() => {});
+      fetch(`/api/assignments?course_id=${courseId}`).then(r => r.json() as Promise<Assignment[]>).then(setAssignments).catch(() => {});
     }
   }, [courseId]);
 
@@ -356,7 +347,7 @@ function GradingPage() {
 
   const createAssignment = async () => {
     await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: assignmentName, course_id: courseId, rubric_id: selectedRubric }) });
-    fetch(`/api/assignments?course_id=${courseId}`).then(r => r.json()).then(setAssignments);
+    fetch(`/api/assignments?course_id=${courseId}`).then(r => r.json() as Promise<Assignment[]>).then(setAssignments);
     setShowNewAssignment(false);
   };
 
@@ -372,9 +363,9 @@ function GradingPage() {
     setQueue(q);
   };
 
-  const selectStudent = async (student: any) => {
+  const selectStudent = async (student: QueueItem) => {
     setActiveStudent(student);
-    const items = await api.getGradeItems(activeSession.id, student.id);
+    const items = await api.getGradeItems(activeSession!.id, student.id);
     setGradeItems(items);
   };
 
@@ -382,31 +373,31 @@ function GradingPage() {
     if (!submissionText.trim()) return;
     setSuggesting(true);
     try {
-      await api.requestSuggestion(activeSession.id, activeStudent.id, { submission_text: submissionText });
-      const items = await api.getGradeItems(activeSession.id, activeStudent.id);
+      await api.requestSuggestion(activeSession!.id, activeStudent!.id, { submission_text: submissionText });
+      const items = await api.getGradeItems(activeSession!.id, activeStudent!.id);
       setGradeItems(items);
-    } catch {}
+    } catch { /* Intentional — silently handle failed assignment fetch */ }
     setSuggesting(false);
   };
 
-  const acceptSuggestion = (item: any) => {
+  const acceptSuggestion = (item: GradeItem) => {
     setGradeItems((prev) => prev.map((gi) =>
       gi.id === item.id ? { ...gi, professor_score: gi.suggested_score, professor_comment: gi.suggested_comment } : gi
     ));
   };
 
-  const updateProfessorField = (itemId: string, field: string, value: any) => {
+  const updateProfessorField = (itemId: string, field: string, value: string | number | null) => {
     setGradeItems((prev) => prev.map((gi) =>
       gi.id === itemId ? { ...gi, [field]: value } : gi
     ));
   };
 
-  const approveItem = async (item: any) => {
-    await api.updateGradeItem(item.id, { professor_score: item.professor_score, professor_comment: item.professor_comment });
+  const approveItem = async (item: GradeItem) => {
+    await api.updateGradeItem(item.id, { professor_score: item.professor_score ?? undefined, professor_comment: item.professor_comment ?? undefined });
     await api.approveGradeItem(item.id);
-    const items = await api.getGradeItems(activeSession.id, activeStudent.id);
+    const items = await api.getGradeItems(activeSession!.id, activeStudent!.id);
     setGradeItems(items);
-    const q = await api.getGradingQueue(activeSession.id);
+    const q = await api.getGradingQueue(activeSession!.id);
     setQueue(q);
   };
 
@@ -533,7 +524,7 @@ function GradingPage() {
         </div>
       )}
 
-      {assignments.map((a: any) => (
+      {assignments.map((a: Assignment) => (
         <div key={a.id} style={{ background: 'white', border: '1px solid #e5e5e5', borderRadius: 8, padding: '0.75rem', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{a.name}</span>
           <button onClick={() => startGrading(a.id)} className="btn btn-primary btn-small" disabled={!a.rubric_id}>Start Grading</button>

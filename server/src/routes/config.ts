@@ -3,12 +3,21 @@ import { getDb } from '../db/index.js';
 import { getConfig } from '../config.js';
 import OpenAI from 'openai';
 
+interface ConfigRow {
+  key: string;
+  value: string;
+}
+
+interface ModelsResponse {
+  data?: Array<{ id: string; owned_by?: string }>;
+}
+
 const configRoutes = new Hono();
 
 // Get current config (no secrets exposed)
 configRoutes.get('/', (c) => {
   const db = getDb();
-  const rows = db.prepare('SELECT key, value FROM config').all() as { key: string; value: string }[];
+  const rows = db.prepare('SELECT key, value FROM config').all() as ConfigRow[];
   const stored: Record<string, string> = {};
   for (const row of rows) {
     stored[row.key] = row.value;
@@ -57,8 +66,8 @@ configRoutes.put('/', async (c) => {
   for (const [key, value] of Object.entries(body)) {
     if (allowedKeys.includes(key)) {
       const val = String(value);
-      upsert.run(key, val, val);
-      updates.push(key);
+      const result = upsert.run(key, val, val);
+      if (result.changes > 0) updates.push(key);
     }
   }
 
@@ -69,7 +78,7 @@ configRoutes.put('/', async (c) => {
 configRoutes.post('/test-llm', async (c) => {
   const db = getDb();
   const getVal = (key: string) => {
-    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as { value: string } | undefined;
+    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as ConfigRow | undefined;
     return row?.value;
   };
 
@@ -91,10 +100,11 @@ configRoutes.post('/test-llm', async (c) => {
       model: response.model || model,
       latency_ms: latency,
     });
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Connection failed';
     return c.json({
       ok: false,
-      error: err.message || 'Connection failed',
+      error: message,
     }, 500);
   }
 });
@@ -103,7 +113,7 @@ configRoutes.post('/test-llm', async (c) => {
 configRoutes.post('/test-canvas', async (c) => {
   const db = getDb();
   const getVal = (key: string) => {
-    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as { value: string } | undefined;
+    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as ConfigRow | undefined;
     return row?.value;
   };
 
@@ -128,8 +138,9 @@ configRoutes.post('/test-canvas', async (c) => {
       ok: true,
       courses_count: Array.isArray(courses) ? courses.length : 0,
     });
-  } catch (err: any) {
-    return c.json({ ok: false, error: err.message || 'Connection failed' }, 500);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Connection failed';
+    return c.json({ ok: false, error: message }, 500);
   }
 });
 
@@ -137,7 +148,7 @@ configRoutes.post('/test-canvas', async (c) => {
 configRoutes.get('/models', async (c) => {
   const db = getDb();
   const getVal = (key: string) => {
-    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as { value: string } | undefined;
+    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as ConfigRow | undefined;
     return row?.value;
   };
   const endpoint = getVal('llm_endpoint') || getConfig().llm.endpoint;
@@ -150,15 +161,16 @@ configRoutes.get('/models', async (c) => {
     if (!response.ok) {
       return c.json({ ok: false, error: `Failed to list models: ${response.status}` }, 500);
     }
-    const data = await response.json() as any;
-    const models = (data.data || []).map((m: any) => ({
+    const data = await response.json() as ModelsResponse;
+    const models = (data.data || []).map((m) => ({
       id: m.id,
       name: m.id,
       owned_by: m.owned_by || 'local',
     }));
     return c.json({ ok: true, models });
-  } catch (err: any) {
-    return c.json({ ok: false, error: err.message || 'Could not reach LLM endpoint' }, 500);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Could not reach LLM endpoint';
+    return c.json({ ok: false, error: message }, 500);
   }
 });
 

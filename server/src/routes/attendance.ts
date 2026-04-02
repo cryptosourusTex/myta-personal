@@ -2,6 +2,41 @@ import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { nanoid } from 'nanoid';
 
+interface AttendanceRecord {
+  id: string;
+  student_id: string;
+  session_id: string;
+  status: string;
+  note: string | null;
+  source: string;
+  updated_at: number;
+  student_name?: string;
+  student_email?: string;
+  name?: string;
+  date?: string;
+}
+
+interface AttendanceSession {
+  id: string;
+  course_id: string;
+  date: string;
+  notes: string | null;
+  finalized: number;
+  created_at: number;
+}
+
+interface StudentRow {
+  id: string;
+  name: string;
+  email: string | null;
+  course_id: string;
+}
+
+interface SessionRow {
+  id: string;
+  date: string;
+}
+
 const attendanceRoutes = new Hono();
 
 // Create attendance session
@@ -14,7 +49,7 @@ attendanceRoutes.post('/sessions', async (c) => {
   db.prepare('INSERT INTO attendance_session (id, course_id, date, finalized, created_at) VALUES (?, ?, ?, 0, ?)').run(id, course_id, date, now);
 
   // Create attendance records for all students (default: absent)
-  const students = db.prepare('SELECT * FROM student WHERE course_id = ?').all(course_id) as any[];
+  const students = db.prepare('SELECT * FROM student WHERE course_id = ?').all(course_id) as StudentRow[];
   const insert = db.prepare('INSERT INTO attendance_record (id, session_id, student_id, status, source, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
   for (const s of students) {
     insert.run(nanoid(), id, s.id, 'absent', 'manual', now);
@@ -40,7 +75,7 @@ attendanceRoutes.get('/sessions', (c) => {
 attendanceRoutes.get('/sessions/:id', (c) => {
   const id = c.req.param('id');
   const db = getDb();
-  const session = db.prepare('SELECT * FROM attendance_session WHERE id = ?').get(id) as any;
+  const session = db.prepare('SELECT * FROM attendance_session WHERE id = ?').get(id) as AttendanceSession | undefined;
   if (!session) return c.json({ error: 'Not found' }, 404);
 
   const records = db.prepare(`
@@ -85,7 +120,7 @@ attendanceRoutes.get('/sessions/:id/export', (c) => {
     JOIN attendance_session ass ON ass.id = ar.session_id
     WHERE ar.session_id = ?
     ORDER BY s.name
-  `).all(id) as any[];
+  `).all(id) as AttendanceRecord[];
 
   const csv = ['student_name,student_id,date,status,note'];
   for (const r of records) {
@@ -111,10 +146,10 @@ attendanceRoutes.post('/sessions/:id/voice', async (c) => {
     FROM attendance_record ar
     JOIN student s ON s.id = ar.student_id
     WHERE ar.session_id = ?
-  `).all(sessionId) as any[];
+  `).all(sessionId) as AttendanceRecord[];
 
   const cmd = command.toLowerCase().trim();
-  const actions: any[] = [];
+  const actions: Array<{ student_id?: string; name?: string; new_status?: string; action?: string; text?: string }> = [];
   const unmatched: string[] = [];
   const now = Date.now();
 
@@ -124,7 +159,7 @@ attendanceRoutes.post('/sessions/:id/voice', async (c) => {
     const exceptName = exceptMatch?.[1]?.trim();
 
     for (const r of records) {
-      if (exceptName && fuzzyMatch(r.name, exceptName) < 3) {
+      if (exceptName && fuzzyMatch(r.name ?? '', exceptName) < 3) {
         db.prepare('UPDATE attendance_record SET status = ?, source = ?, updated_at = ? WHERE id = ?').run('absent', 'voice', now, r.id);
         actions.push({ student_id: r.student_id, name: r.name, new_status: 'absent' });
       } else {
@@ -141,10 +176,10 @@ attendanceRoutes.post('/sessions/:id/voice', async (c) => {
     const targetName = markMatch[1].trim();
     const targetStatus = markMatch[2].toLowerCase();
 
-    let bestMatch: any = null;
+    let bestMatch: AttendanceRecord | null = null;
     let bestDist = Infinity;
     for (const r of records) {
-      const dist = fuzzyMatch(r.name, targetName);
+      const dist = fuzzyMatch(r.name ?? '', targetName);
       if (dist < bestDist) {
         bestDist = dist;
         bestMatch = r;
@@ -163,7 +198,7 @@ attendanceRoutes.post('/sessions/:id/voice', async (c) => {
   // "note [text]"
   if (cmd.startsWith('note ')) {
     const noteText = command.slice(5).trim();
-    const session = db.prepare('SELECT notes FROM attendance_session WHERE id = ?').get(sessionId) as any;
+    const session = db.prepare('SELECT notes FROM attendance_session WHERE id = ?').get(sessionId) as AttendanceSession | undefined;
     const existing = session?.notes || '';
     const updated = existing ? `${existing}\n${noteText}` : noteText;
     db.prepare('UPDATE attendance_session SET notes = ? WHERE id = ?').run(updated, sessionId);
@@ -199,28 +234,26 @@ attendanceRoutes.get('/analytics/:courseId', (c) => {
   // Get all sessions for the course
   const sessions = db.prepare(
     'SELECT id, date FROM attendance_session WHERE course_id = ? ORDER BY date'
-  ).all(courseId) as any[];
+  ).all(courseId) as SessionRow[];
 
   if (sessions.length === 0) {
     return c.json({ sessions_count: 0, students: [], session_dates: [] });
   }
 
   // Get all students
-  const students = db.prepare('SELECT id, name FROM student WHERE course_id = ? ORDER BY name').all(courseId) as any[];
+  const students = db.prepare('SELECT id, name FROM student WHERE course_id = ? ORDER BY name').all(courseId) as StudentRow[];
 
-  // Get all records for these sessions
-  const sessionIds = sessions.map((s: any) => s.id);
-  const placeholders = sessionIds.map(() => '?').join(',');
+  // Get all records for sessions in this course via join (avoids dynamic IN clause)
   const records = db.prepare(`
     SELECT ar.student_id, ar.status, ass.date
     FROM attendance_record ar
     JOIN attendance_session ass ON ass.id = ar.session_id
-    WHERE ar.session_id IN (${placeholders})
-  `).all(...sessionIds) as any[];
+    WHERE ass.course_id = ?
+  `).all(courseId) as AttendanceRecord[];
 
   // Build per-student analytics
-  const studentAnalytics = students.map((student: any) => {
-    const studentRecords = records.filter((r: any) => r.student_id === student.id);
+  const studentAnalytics = students.map((student: StudentRow) => {
+    const studentRecords = records.filter((r: AttendanceRecord) => r.student_id === student.id);
     const counts = { present: 0, absent: 0, late: 0, excused: 0 };
     for (const r of studentRecords) {
       if (r.status in counts) counts[r.status as keyof typeof counts]++;
@@ -229,7 +262,7 @@ attendanceRoutes.get('/analytics/:courseId', (c) => {
     const attendanceRate = ((counts.present + counts.late + counts.excused) / total * 100).toFixed(1);
 
     // Calculate current streak (consecutive present/late from most recent)
-    const sorted = studentRecords.sort((a: any, b: any) => b.date.localeCompare(a.date));
+    const sorted = studentRecords.sort((a: AttendanceRecord, b: AttendanceRecord) => (b.date ?? '').localeCompare(a.date ?? ''));
     let streak = 0;
     for (const r of sorted) {
       if (r.status === 'present' || r.status === 'late') streak++;
@@ -248,11 +281,11 @@ attendanceRoutes.get('/analytics/:courseId', (c) => {
   // Course-level summary
   const totalPresent = studentAnalytics.reduce((sum, s) => sum + s.present, 0);
   const totalRecords = records.length || 1;
-  const courseRate = ((records.filter((r: any) => r.status === 'present' || r.status === 'late' || r.status === 'excused').length / totalRecords) * 100).toFixed(1);
+  const courseRate = ((records.filter((r: AttendanceRecord) => r.status === 'present' || r.status === 'late' || r.status === 'excused').length / totalRecords) * 100).toFixed(1);
 
   return c.json({
     sessions_count: sessions.length,
-    session_dates: sessions.map((s: any) => s.date),
+    session_dates: sessions.map((s: SessionRow) => s.date),
     course_attendance_rate: parseFloat(courseRate),
     students: studentAnalytics,
   });

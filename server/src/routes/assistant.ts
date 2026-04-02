@@ -23,7 +23,7 @@ assistantRoutes.post('/answer', async (c) => {
   const model = getVal('qa_model') || getVal('llm_model') || getConfig().llm.model;
   const apiKey = getVal('llm_api_key') || getConfig().llm.api_key || 'none';
 
-  const docsText = document_contents.map((d: any) => `--- ${d.name || 'Document'} ---\n${d.text}`).join('\n\n');
+  const docsText = document_contents.map((d: { name?: string; text: string }) => `--- ${d.name || 'Document'} ---\n${d.text}`).join('\n\n');
 
   const prompt = `You are a course assistant helping a professor draft a response to a student question.
 Answer ONLY from the provided course documents.
@@ -58,12 +58,16 @@ Confidence: [clearly_answered | partially_answered | not_in_documents]`;
     const confidence = confMatch ? confMatch[1].toLowerCase() : 'partially_answered';
 
     // Audit log
-    db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    const auditResult = db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(nanoid(), 'qa_draft_generated', 'assistant', null, question, Date.now());
+    if (auditResult.changes !== 1) {
+      process.stderr.write('Warning: audit log insert did not record expected row\n');
+    }
 
     return c.json({ draft, source, confidence, model });
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: message }, 500);
   }
 });
 

@@ -7,6 +7,11 @@ import { getDb } from './db/index.js';
 import { existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { basicAuth } from './middleware/auth.js';
+
+const log = {
+  info: (...args: unknown[]) => process.stdout.write(args.join(' ') + '\n'),
+};
+
 import configRoutes from './routes/config.js';
 import vaultRoutes from './routes/vault.js';
 import canvasRoutes from './routes/canvas.js';
@@ -52,10 +57,10 @@ app.use('/*', serveStatic({ root: webRoot }));
 app.get('*', serveStatic({ root: webRoot, path: '/index.html' }));
 
 const port = config.server.port;
-console.log(`MyTA Personal starting on port ${port}`);
+log.info(`MyTA Personal starting on port ${port}`);
 
 serve({ fetch: app.fetch, port, hostname: config.server.host }, (info) => {
-  console.log(`MyTA Personal running at http://${config.server.host}:${info.port}`);
+  log.info(`MyTA Personal running at http://${config.server.host}:${info.port}`);
 });
 
 export { app };

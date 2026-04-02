@@ -4,6 +4,86 @@ import { getConfig } from '../config.js';
 import { nanoid } from 'nanoid';
 import OpenAI from 'openai';
 
+interface Assignment {
+  id: string;
+  course_id: string;
+  name: string;
+  rubric_id: string | null;
+  points_possible: number | null;
+  created_at: number;
+}
+
+interface Rubric {
+  id: string;
+  name: string;
+  course_id: string | null;
+  created_at: number;
+}
+
+interface RubricCriterion {
+  id: string;
+  rubric_id: string;
+  title: string;
+  description: string | null;
+  points_possible: number;
+  sort_order: number;
+}
+
+interface StudentRow {
+  id: string;
+  name: string;
+  email: string | null;
+  course_id: string;
+}
+
+interface GradingSession {
+  id: string;
+  assignment_id: string;
+  status: string;
+  created_at: number;
+}
+
+interface GradeItem {
+  id: string;
+  session_id: string;
+  student_id: string;
+  criterion_id: string;
+  suggested_score: number | null;
+  suggested_comment: string | null;
+  suggested_passage: string | null;
+  ai_model: string | null;
+  ai_endpoint: string | null;
+  professor_score: number | null;
+  professor_comment: string | null;
+  final_score: number | null;
+  final_comment: string | null;
+  status: string;
+  updated_at: number;
+}
+
+interface GradeItemWithCriterion extends GradeItem {
+  criterion_title: string;
+  criterion_description: string | null;
+  points_possible: number;
+}
+
+interface GradeExportRow {
+  name: string;
+  email: string | null;
+  assignment_name?: string;
+  criterion: string;
+  final_score: number;
+  final_comment: string | null;
+  points_possible: number;
+  status: string;
+  student_name?: string;
+  student_email?: string;
+}
+
+interface ConfigRow {
+  value: string;
+}
+
 const gradingRoutes = new Hono();
 
 // ---- Rubrics ----
@@ -17,7 +97,7 @@ gradingRoutes.post('/rubrics', async (c) => {
 
   if (criteria && Array.isArray(criteria)) {
     const ins = db.prepare('INSERT INTO rubric_criterion (id, rubric_id, title, description, points_possible, sort_order) VALUES (?, ?, ?, ?, ?, ?)');
-    criteria.forEach((cr: any, i: number) => {
+    criteria.forEach((cr: { title: string; description?: string; points_possible: number }, i: number) => {
       ins.run(nanoid(), id, cr.title, cr.description || null, cr.points_possible, i);
     });
   }
@@ -40,7 +120,7 @@ gradingRoutes.get('/rubrics', (c) => {
 gradingRoutes.get('/rubrics/:id', (c) => {
   const id = c.req.param('id');
   const db = getDb();
-  const rubric = db.prepare('SELECT * FROM rubric WHERE id = ?').get(id) as any;
+  const rubric = db.prepare('SELECT * FROM rubric WHERE id = ?').get(id) as Rubric | undefined;
   if (!rubric) return c.json({ error: 'Not found' }, 404);
   const criteria = db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(id);
   return c.json({ ...rubric, criteria });
@@ -73,14 +153,14 @@ gradingRoutes.post('/grading/sessions', async (c) => {
   const id = nanoid();
   const now = Date.now();
 
-  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(assignment_id) as any;
+  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(assignment_id) as Assignment | undefined;
   if (!assignment) return c.json({ error: 'Assignment not found' }, 404);
   if (!assignment.rubric_id) return c.json({ error: 'Assignment has no rubric' }, 400);
 
   db.prepare('INSERT INTO grading_session (id, assignment_id, status, created_at) VALUES (?, ?, ?, ?)').run(id, assignment_id, 'active', now);
 
-  const students = db.prepare('SELECT * FROM student WHERE course_id = ?').all(assignment.course_id) as any[];
-  const criteria = db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment.rubric_id) as any[];
+  const students = db.prepare('SELECT * FROM student WHERE course_id = ?').all(assignment.course_id) as StudentRow[];
+  const criteria = db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment.rubric_id) as RubricCriterion[];
 
   const ins = db.prepare(
     'INSERT INTO grade_item (id, session_id, student_id, criterion_id, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
@@ -99,15 +179,15 @@ gradingRoutes.post('/grading/sessions', async (c) => {
 gradingRoutes.get('/grading/sessions/:id', (c) => {
   const id = c.req.param('id');
   const db = getDb();
-  const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(id) as any;
+  const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(id) as GradingSession | undefined;
   if (!session) return c.json({ error: 'Not found' }, 404);
 
-  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as any;
+  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as Assignment | undefined;
   const rubric = assignment?.rubric_id
-    ? db.prepare('SELECT * FROM rubric WHERE id = ?').get(assignment.rubric_id)
+    ? db.prepare('SELECT * FROM rubric WHERE id = ?').get(assignment.rubric_id) as Rubric | undefined
     : null;
   const criteria = assignment?.rubric_id
-    ? db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment.rubric_id)
+    ? db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment.rubric_id) as RubricCriterion[]
     : [];
 
   return c.json({ ...session, assignment, rubric, criteria });
@@ -117,17 +197,17 @@ gradingRoutes.get('/grading/sessions/:id', (c) => {
 gradingRoutes.get('/grading/sessions/:id/queue', (c) => {
   const id = c.req.param('id');
   const db = getDb();
-  const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(id) as any;
+  const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(id) as GradingSession | undefined;
   if (!session) return c.json({ error: 'Not found' }, 404);
 
-  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as any;
-  const students = db.prepare('SELECT * FROM student WHERE course_id = ? ORDER BY name').all(assignment.course_id) as any[];
+  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as Assignment | undefined;
+  const students = db.prepare('SELECT * FROM student WHERE course_id = ? ORDER BY name').all(assignment!.course_id) as StudentRow[];
 
-  const queue = students.map((s: any) => {
-    const items = db.prepare('SELECT status FROM grade_item WHERE session_id = ? AND student_id = ?').all(id, s.id) as any[];
+  const queue = students.map((s: StudentRow) => {
+    const items = db.prepare('SELECT status FROM grade_item WHERE session_id = ? AND student_id = ?').all(id, s.id) as { status: string }[];
     const total = items.length;
-    const approved = items.filter((i: any) => i.status === 'approved').length;
-    const suggested = items.filter((i: any) => i.status === 'suggested').length;
+    const approved = items.filter((i: { status: string }) => i.status === 'approved').length;
+    const suggested = items.filter((i: { status: string }) => i.status === 'suggested').length;
     let status = 'pending';
     if (approved === total && total > 0) status = 'complete';
     else if (suggested > 0 || approved > 0) status = 'in_progress';
@@ -158,11 +238,11 @@ gradingRoutes.post('/grading/sessions/:sessionId/suggest/:studentId', async (c) 
   const { submission_text } = await c.req.json();
   const db = getDb();
 
-  const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(sessionId) as any;
+  const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(sessionId) as GradingSession | undefined;
   if (!session) return c.json({ error: 'Session not found' }, 404);
 
-  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as any;
-  const criteria = db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment.rubric_id) as any[];
+  const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as Assignment | undefined;
+  const criteria = db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment!.rubric_id!) as RubricCriterion[];
 
   // Get LLM config
   const getVal = (key: string) => {
@@ -174,8 +254,9 @@ gradingRoutes.post('/grading/sessions/:sessionId/suggest/:studentId', async (c) 
   const apiKey = getVal('llm_api_key') || getConfig().llm.api_key || 'none';
 
   const client = new OpenAI({ baseURL: endpoint, apiKey });
-  const suggestions: any[] = [];
+  const suggestions: Array<{ criterion_id: string; suggested_score: number | null; suggested_comment: string; suggested_passage: string | null }> = [];
 
+  // vibecop:ignore n-plus-one-query — intentional: one LLM call per rubric criterion for focused grading
   for (const cr of criteria) {
     const prompt = `You are assisting a professor with grading. Be direct. Apply the rubric as written.
 
@@ -207,19 +288,22 @@ Supporting passage: [specific text from submission, or 'none identified']`;
 
       // WRITE audit_log FIRST
       const auditId = nanoid();
-      db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      const auditResult = db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
         .run(auditId, 'ai_suggestion_generated', 'grade_item', `${sessionId}:${studentId}:${cr.id}`, JSON.stringify({ model, endpoint, criterion_id: cr.id }), Date.now());
+      if (!auditResult.changes) throw new Error('Audit log write failed');
 
       // ONLY AFTER audit write: update grade_item
-      db.prepare(`UPDATE grade_item SET
+      const updateResult = db.prepare(`UPDATE grade_item SET
         suggested_score = ?, suggested_comment = ?, suggested_passage = ?,
         ai_model = ?, ai_endpoint = ?, status = 'suggested', updated_at = ?
         WHERE session_id = ? AND student_id = ? AND criterion_id = ?`
       ).run(suggestedScore, suggestedComment, suggestedPassage, model, endpoint, Date.now(), sessionId, studentId, cr.id);
+      if (!updateResult.changes) throw new Error('Grade item update failed');
 
       suggestions.push({ criterion_id: cr.id, suggested_score: suggestedScore, suggested_comment: suggestedComment, suggested_passage: suggestedPassage });
-    } catch (err: any) {
-      return c.json({ error: 'degraded', message: `AI suggestion could not be generated: ${err.message}` }, 500);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: 'degraded', message: `AI suggestion could not be generated: ${message}` }, 500);
     }
   }
 
@@ -231,8 +315,11 @@ gradingRoutes.put('/grading/items/:id', async (c) => {
   const id = c.req.param('id');
   const { professor_score, professor_comment } = await c.req.json();
   const db = getDb();
-  db.prepare('UPDATE grade_item SET professor_score = ?, professor_comment = ?, updated_at = ? WHERE id = ?')
+  const result = db.prepare('UPDATE grade_item SET professor_score = ?, professor_comment = ?, updated_at = ? WHERE id = ?')
     .run(professor_score, professor_comment, Date.now(), id);
+  if (!result.changes) {
+    return c.json({ error: 'Grade item not found' }, 404);
+  }
   return c.json({ updated: id });
 });
 
@@ -240,7 +327,7 @@ gradingRoutes.put('/grading/items/:id', async (c) => {
 gradingRoutes.post('/grading/items/:id/approve', (c) => {
   const id = c.req.param('id');
   const db = getDb();
-  const item = db.prepare('SELECT * FROM grade_item WHERE id = ?').get(id) as any;
+  const item = db.prepare('SELECT * FROM grade_item WHERE id = ?').get(id) as GradeItem | undefined;
   if (!item) return c.json({ error: 'Not found' }, 404);
 
   if (item.professor_score === null) {
@@ -248,17 +335,23 @@ gradingRoutes.post('/grading/items/:id/approve', (c) => {
   }
 
   // Write final_score from professor values
-  db.prepare(`UPDATE grade_item SET
+  const approveResult = db.prepare(`UPDATE grade_item SET
     final_score = ?, final_comment = ?, status = 'approved', updated_at = ?
     WHERE id = ?`
   ).run(item.professor_score, item.professor_comment, Date.now(), id);
+  if (!approveResult.changes) {
+    return c.json({ error: 'Failed to approve grade item' }, 500);
+  }
 
-  // Audit
-  db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+  // Audit — non-critical; log failure but don't block the approval response
+  const auditResult = db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(nanoid(), 'grade_approved', 'grade_item', id, JSON.stringify({
       professor_score: item.professor_score,
       changed_from_suggestion: item.professor_score !== item.suggested_score,
     }), Date.now());
+  if (!auditResult.changes) {
+    process.stderr.write(`Warning: audit log insert failed for grade_item approval ${id}\n`);
+  }
 
   return c.json({ approved: id, final_score: item.professor_score });
 });
@@ -275,10 +368,10 @@ gradingRoutes.get('/grading/sessions/:id/export', (c) => {
     JOIN rubric_criterion rc ON rc.id = gi.criterion_id
     WHERE gi.session_id = ? AND gi.status = 'approved'
     ORDER BY s.name, rc.sort_order
-  `).all(id) as any[];
+  `).all(id) as GradeExportRow[];
 
   // Check for unapproved
-  const unapproved = db.prepare("SELECT COUNT(*) as count FROM grade_item WHERE session_id = ? AND status != 'approved'").get(id) as any;
+  const unapproved = db.prepare("SELECT COUNT(*) as count FROM grade_item WHERE session_id = ? AND status != 'approved'").get(id) as { count: number };
 
   const csv = ['student_name,student_email,criterion,final_score,final_comment'];
   for (const item of items) {
@@ -310,14 +403,14 @@ gradingRoutes.get('/grading/export/course/:courseId', (c) => {
     JOIN rubric_criterion rc ON rc.id = gi.criterion_id
     WHERE a.course_id = ? AND gi.status = 'approved'
     ORDER BY s.name, a.name, rc.sort_order
-  `).all(courseId) as any[];
+  `).all(courseId) as GradeExportRow[];
 
   // Also build a summary row per student per assignment (total score)
   const summaryMap = new Map<string, { name: string; email: string; assignment: string; total: number; possible: number }>();
   for (const item of items) {
     const key = `${item.student_name}|${item.assignment_name}`;
     if (!summaryMap.has(key)) {
-      summaryMap.set(key, { name: item.student_name, email: item.student_email || '', assignment: item.assignment_name, total: 0, possible: 0 });
+      summaryMap.set(key, { name: item.student_name || '', email: item.student_email || '', assignment: item.assignment_name || '', total: 0, possible: 0 });
     }
     const entry = summaryMap.get(key)!;
     entry.total += item.final_score;

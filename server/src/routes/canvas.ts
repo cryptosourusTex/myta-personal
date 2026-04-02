@@ -60,7 +60,10 @@ canvasRoutes.post('/sync', async (c) => {
           upsertStudent.run(sid, cid, sname, email, section, sname, email);
           studentsTotal++;
         }
-      } catch {}
+      } catch (err) {
+        // Canvas enrollment sync failure for this course — degrade gracefully, skip roster
+        process.stderr.write(`Canvas roster sync failed for course ${course.id}: ${err instanceof Error ? err.message : err}\n`);
+      }
     }
 
     return c.json({
@@ -68,12 +71,12 @@ canvasRoutes.post('/sync', async (c) => {
       students_synced: studentsTotal,
       synced_at: now,
     });
-  } catch (err: any) {
+  } catch (err) {
     // Return cached data info on failure
     const cached = db.prepare('SELECT COUNT(*) as count FROM course').get() as { count: number };
     const lastSync = db.prepare('SELECT MAX(synced_at) as ts FROM course').get() as { ts: number | null };
     return c.json({
-      error: err.message,
+      error: err instanceof Error ? err.message : String(err),
       cached_at: lastSync?.ts,
       courses_cached: cached.count,
     }, 502);
