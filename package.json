@@ -1,16 +1,13 @@
 {
   "name": "myta-personal",
   "private": true,
-  "workspaces": ["web", "worker"],
+  "workspaces": ["web", "server"],
   "scripts": {
-    "dev": "concurrently \"npm run dev:worker\" \"npm run dev:web\"",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm run dev --workspace=server",
     "dev:web": "npm run dev --workspace=web",
-    "dev:worker": "npm run dev --workspace=worker",
-    "build": "npm run build --workspace=web && npm run build --workspace=worker",
-    "build:web": "npm run build --workspace=web",
-    "build:worker": "npm run build --workspace=worker",
-    "db:migrate": "npm run db:migrate --workspace=worker",
-    "deploy": "npm run deploy --workspace=worker && npm run deploy --workspace=web"
+    "build": "npm run build --workspace=web && npm run build --workspace=server",
+    "start": "npm run start --workspace=server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

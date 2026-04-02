@@ -1,0 +1,12 @@
+services:
+  myta:
+    build: .
+    container_name: myta-server
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+      - ./config.yml:/app/config.yml:ro
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped

@@ -1,0 +1,26 @@
+# MyTA Personal — Configuration
+# Copy to config.yml and edit, then run: docker compose up
+
+llm:
+  endpoint: http://localhost:11434/v1   # Ollama default
+  model: llama3.2                       # any model name
+  api_key: ""                           # blank for local models
+  context_window: 8192                  # tokens available for context
+
+storage:
+  path: /data/vault                     # inside the container
+  encryption: false                     # true = AES-GCM 256-bit client-side
+  # If encryption: true, key is generated in the browser on first run
+  # and never transmitted to the server
+
+canvas:
+  domain: ""                            # e.g. college.instructure.com
+  # API token is set in the app UI — not stored in this file
+
+server:
+  port: 3000
+  host: 0.0.0.0                         # listen on all interfaces for Tailscale
+
+accessibility:
+  voice_input: true                     # dictation on attendance + grading
+  voice_readback: false                 # TTS for Q&A draft answers

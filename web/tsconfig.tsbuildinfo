@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/canvassync.tsx","./src/components/dashboard.tsx","./src/components/setupwizard.tsx","./src/lib/vault.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/api.ts","./src/crypto.ts","./src/main.tsx","./src/vite-env.d.ts","./src/components/layout.tsx","./src/pages/assistant.tsx","./src/pages/courses.tsx","./src/pages/settings.tsx","./src/pages/setup.tsx","./src/pages/vault.tsx"],"version":"5.9.3"}
