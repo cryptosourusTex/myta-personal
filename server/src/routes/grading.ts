@@ -3,6 +3,8 @@ import { getDb } from '../db/index.js';
 import { getConfig } from '../config.js';
 import { nanoid } from 'nanoid';
 import OpenAI from 'openai';
+import { PDFParse } from 'pdf-parse';
+import mammoth from 'mammoth';
 
 interface Assignment {
   id: string;
@@ -230,6 +232,48 @@ gradingRoutes.get('/grading/items', (c) => {
     ORDER BY rc.sort_order
   `).all(sessionId, studentId);
   return c.json(items);
+});
+
+// Extract text from an uploaded submission file (PDF, Word, Markdown, plain
+// text). Extraction only — the professor reviews the text before any AI call.
+gradingRoutes.post('/grading/extract-text', async (c) => {
+  const formData = await c.req.formData();
+  const file = formData.get('file') as File | null;
+  if (!file) return c.json({ error: 'No file provided' }, 400);
+
+  const name = file.name || 'submission';
+  const ext = name.toLowerCase().split('.').pop() || '';
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  let text: string;
+  try {
+    if (ext === 'pdf') {
+      const parser = new PDFParse({ data: new Uint8Array(buffer) });
+      try {
+        const result = await parser.getText();
+        text = result.text;
+      } finally {
+        await parser.destroy();
+      }
+    } else if (ext === 'docx') {
+      const result = await mammoth.extractRawText({ buffer });
+      text = result.value;
+    } else if (ext === 'doc') {
+      return c.json({ error: 'Legacy .doc is not supported — save as .docx or PDF and re-upload' }, 415);
+    } else if (['md', 'markdown', 'txt', 'text', 'rtf'].includes(ext) || (file.type || '').startsWith('text/')) {
+      text = buffer.toString('utf-8');
+    } else {
+      return c.json({ error: `Unsupported file type ".${ext}" — upload PDF, .docx, Markdown, or plain text` }, 415);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: `Could not extract text from ${name}: ${message}` }, 422);
+  }
+
+  text = text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!text) return c.json({ error: `No text found in ${name} — if it is a scan, OCR is not supported here yet` }, 422);
+
+  return c.json({ name, text, chars: text.length });
 });
 
 // AI suggestion

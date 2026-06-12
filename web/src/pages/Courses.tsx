@@ -408,6 +408,9 @@ function GradingPage() {
   const [gradeItems, setGradeItems] = useState<GradeItem[]>([]);
   const [submissionText, setSubmissionText] = useState('');
   const [suggesting, setSuggesting] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractStatus, setExtractStatus] = useState('');
+  const submissionFileInput = useRef<HTMLInputElement>(null);
 
   // Rubric creation state
   const [showNewRubric, setShowNewRubric] = useState(false);
@@ -458,6 +461,21 @@ function GradingPage() {
     setGradeItems(items);
   };
 
+  const handleSubmissionFile = async (file: File) => {
+    setExtracting(true);
+    setExtractStatus('');
+    try {
+      const result = await api.extractSubmissionText(file);
+      setSubmissionText(result.text);
+      setExtractStatus(`Extracted ${result.chars.toLocaleString()} characters from ${result.name} — review before requesting suggestions`);
+    } catch (err) {
+      setExtractStatus(err instanceof Error ? err.message : 'Extraction failed');
+    } finally {
+      setExtracting(false);
+      if (submissionFileInput.current) submissionFileInput.current.value = '';
+    }
+  };
+
   const requestSuggestions = async () => {
     if (!submissionText.trim()) return;
     setSuggesting(true);
@@ -499,11 +517,18 @@ function GradingPage() {
 
         <div style={{ marginBottom: '1rem' }}>
           <label>Submission Text
-            <textarea value={submissionText} onChange={(e) => setSubmissionText(e.target.value)} rows={6} placeholder="Paste student submission here..." style={{ width: '100%' }} />
+            <textarea value={submissionText} onChange={(e) => setSubmissionText(e.target.value)} rows={6} placeholder="Paste student submission here, or upload a file below..." style={{ width: '100%' }} />
           </label>
-          <button onClick={requestSuggestions} disabled={suggesting} className="btn btn-primary btn-small" style={{ marginTop: '0.5rem' }}>
-            {suggesting ? 'Generating...' : 'Get AI Suggestions'}
-          </button>
+          {extractStatus && <div className="status-msg info" style={{ marginTop: '0.25rem' }}>{extractStatus}</div>}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <button onClick={() => submissionFileInput.current?.click()} disabled={extracting} className="btn btn-secondary btn-small">
+              {extracting ? 'Extracting...' : 'Upload File (PDF, Word, text)'}
+            </button>
+            <input ref={submissionFileInput} type="file" accept=".pdf,.docx,.md,.markdown,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleSubmissionFile(f); }} />
+            <button onClick={requestSuggestions} disabled={suggesting || !submissionText.trim()} className="btn btn-primary btn-small">
+              {suggesting ? 'Generating...' : 'Get AI Suggestions'}
+            </button>
+          </div>
         </div>
 
         {gradeItems.map((item) => (

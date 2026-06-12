@@ -65,6 +65,12 @@ interface VoiceResult {
   unmatched: string[];
 }
 
+interface ExtractedText {
+  name: string;
+  text: string;
+  chars: number;
+}
+
 interface OcrMatch {
   extracted_name: string;
   record_id: string;
@@ -238,6 +244,16 @@ export const api = {
   getGradingSession: (id: string) => request<GradingSession>(`/grading/sessions/${id}`),
   getGradingQueue: (id: string) => request<QueueItem[]>(`/grading/sessions/${id}/queue`),
   requestSuggestion: (sessionId: string, studentId: string, data: { submission_text: string }) => request<GradeItem[]>(`/grading/sessions/${sessionId}/suggest/${studentId}`, { method: 'POST', body: JSON.stringify(data) }),
+  extractSubmissionText: async (file: File): Promise<ExtractedText> => {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    const res = await fetch(`${BASE}/grading/extract-text`, { method: 'POST', body: formData });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(body.error || `Extraction failed: ${res.status}`);
+    }
+    return res.json();
+  },
   getGradeItems: (sessionId: string, studentId: string) => request<GradeItem[]>(`/grading/items?session_id=${sessionId}&student_id=${studentId}`),
   updateGradeItem: (id: string, data: { professor_score?: number; professor_comment?: string }) => request<GradeItem>(`/grading/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   approveGradeItem: (id: string) => request<GradeItem>(`/grading/items/${id}/approve`, { method: 'POST' }),
@@ -249,4 +265,4 @@ export const api = {
   getAuditLog: (params: string) => request<AuditEntry[]>(`/audit?${params}`),
 };
 
-export type { Config, Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrMatch, OcrResult, AttendanceAnalytics, VaultAsset, Rubric, GradingSession, Assignment, QueueItem, GradeItem, AssistantResponse, AuditEntry };
+export type { Config, Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrMatch, OcrResult, ExtractedText, AttendanceAnalytics, VaultAsset, Rubric, GradingSession, Assignment, QueueItem, GradeItem, AssistantResponse, AuditEntry };
