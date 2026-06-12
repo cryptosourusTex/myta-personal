@@ -306,23 +306,29 @@ gradingRoutes.post('/grading/sessions/:sessionId/suggest/:studentId', async (c) 
 
   // vibecop:ignore n-plus-one-query — intentional: one LLM call per rubric criterion for focused grading
   for (const cr of criteria) {
-    const prompt = `You are assisting a professor with grading. Be direct. Apply the rubric as written.
+    const prompt = `You are assisting a professor with a first-pass review of a student's written work. Your suggestion is advisory only — the professor makes every grading decision.
 
-Criterion: ${cr.title} — ${cr.description || ''} (${cr.points_possible} points possible)
+Assignment: ${assignment!.name}
+Criterion: ${cr.title} — ${cr.description || 'no description provided'} (${cr.points_possible} points possible)
+
+Grade ONLY this criterion. Apply the rubric as written: do not invent requirements it does not state, and do not credit effort it does not ask for. Use the full scoring range — a submission that fully satisfies the criterion earns full points, and one that does not address it earns zero. Judge the writing on what is actually on the page, not on what the student likely intended.
 
 Student submission:
+"""
 ${submission_text}
+"""
 
-Provide your response in this exact format:
-Suggested score: [number 0 to ${cr.points_possible}]
-Comment: [2-3 sentences explaining the score]
-Supporting passage: [specific text from submission, or 'none identified']`;
+Respond in this exact format:
+Suggested score: [number from 0 to ${cr.points_possible}, decimals allowed]
+Comment: [2-3 specific sentences a professor could adapt into feedback — reference what the submission actually says, not generic praise or criticism]
+Supporting passage: [short verbatim quote from the submission that most informs the score, or 'none identified']`;
 
     try {
       const response = await client.chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 500,
+        max_tokens: 600,
+        temperature: 0,
       });
 
       const text = response.choices[0]?.message?.content || '';

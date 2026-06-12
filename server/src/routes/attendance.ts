@@ -405,7 +405,7 @@ attendanceRoutes.get('/analytics/:courseId', (c) => {
 
   // Get all records for sessions in this course via join (avoids dynamic IN clause)
   const records = db.prepare(`
-    SELECT ar.student_id, ar.status, ass.date
+    SELECT ar.student_id, ar.status, ar.session_id, ass.date
     FROM attendance_record ar
     JOIN attendance_session ass ON ass.id = ar.session_id
     WHERE ass.course_id = ?
@@ -429,13 +429,41 @@ attendanceRoutes.get('/analytics/:courseId', (c) => {
       else break;
     }
 
+    // Last 5 statuses, most recent first
+    const recent = sorted.slice(0, 5).map((r: AttendanceRecord) => r.status);
+
+    // At-risk flags — only once there is enough signal (3+ sessions)
+    const riskReasons: string[] = [];
+    if (sessions.length >= 3) {
+      const rate = parseFloat(attendanceRate);
+      if (rate < 70) riskReasons.push(`attendance ${rate}%`);
+      let consecutiveAbsences = 0;
+      for (const r of sorted) {
+        if (r.status === 'absent') consecutiveAbsences++;
+        else break;
+      }
+      if (consecutiveAbsences >= 2) riskReasons.push(`${consecutiveAbsences} consecutive absences`);
+    }
+
     return {
       id: student.id,
       name: student.name,
       ...counts,
       attendance_rate: parseFloat(attendanceRate),
       current_streak: streak,
+      recent,
+      at_risk: riskReasons.length > 0,
+      risk_reasons: riskReasons,
     };
+  });
+
+  // Per-session summaries
+  const sessionSummaries = sessions.map((sess: SessionRow) => {
+    const counts = { present: 0, absent: 0, late: 0, excused: 0 };
+    for (const r of records) {
+      if (r.session_id === sess.id && r.status in counts) counts[r.status as keyof typeof counts]++;
+    }
+    return { id: sess.id, date: sess.date, ...counts };
   });
 
   // Course-level summary
@@ -447,7 +475,9 @@ attendanceRoutes.get('/analytics/:courseId', (c) => {
     sessions_count: sessions.length,
     session_dates: sessions.map((s: SessionRow) => s.date),
     course_attendance_rate: parseFloat(courseRate),
+    at_risk_count: studentAnalytics.filter((s) => s.at_risk).length,
     students: studentAnalytics,
+    sessions: sessionSummaries,
   });
 });
 

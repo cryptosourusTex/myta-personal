@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrResult, AttendanceAnalytics, Rubric, Assignment, GradingSession, QueueItem, GradeItem } from '../api';
 
@@ -14,6 +14,7 @@ function CourseList() {
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
 
+  const navigate = useNavigate();
   const load = () => api.getCourses().then(setCourses).catch(() => {});
   useEffect(() => { load(); }, []);
 
@@ -69,6 +70,13 @@ function CourseList() {
             <Link key={course.id} to={`/courses/${course.id}`} className="course-card">
               <div className="course-name">{course.name}</div>
               <div className="course-meta">{course.student_count} students</div>
+              <button
+                onClick={(e) => { e.preventDefault(); navigate(`/courses/${course.id}/attendance?today=1`); }}
+                className="btn btn-primary btn-small"
+                style={{ marginTop: '0.5rem' }}
+              >
+                Today's attendance
+              </button>
             </Link>
           ))}
         </div>
@@ -183,12 +191,30 @@ function AttendancePage() {
   const [ocrChecked, setOcrChecked] = useState<Set<string>>(new Set());
   const photoInput = useRef<HTMLInputElement>(null);
 
+  const [searchParams] = useSearchParams();
+
   useEffect(() => {
     if (courseId) {
       loadSessions();
       api.getAttendanceAnalytics(courseId).then(setAnalytics).catch(() => {});
+      if (searchParams.get('today') === '1') openToday();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
+
+  // Two-tap path from the course list: open today's session, creating it if needed
+  const openToday = async () => {
+    const date = new Date().toISOString().split('T')[0];
+    const list = await api.getAttendanceSessions(`course_id=${courseId}`);
+    const existing = list.find((s) => s.date === date);
+    if (existing) {
+      loadSession(existing.id);
+    } else {
+      const result = await api.createAttendanceSession({ course_id: courseId, date });
+      loadSessions();
+      loadSession(result.id);
+    }
+  };
 
   const loadSessions = () => {
     api.getAttendanceSessions(`course_id=${courseId}`).then(setSessions).catch(() => {});
@@ -307,23 +333,51 @@ function AttendancePage() {
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: analytics.course_attendance_rate >= 90 ? '#2d8a4e' : analytics.course_attendance_rate >= 70 ? '#c47f17' : '#c53030', marginBottom: '0.75rem' }}>
                 {analytics.course_attendance_rate}% course attendance
               </div>
+              {analytics.at_risk_count > 0 && (
+                <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div style={{ fontWeight: 600, color: '#c53030', marginBottom: '0.25rem' }}>{analytics.at_risk_count} student{analytics.at_risk_count > 1 ? 's' : ''} at risk</div>
+                  {analytics.students.filter((s) => s.at_risk).map((s) => (
+                    <div key={s.id} style={{ fontSize: '0.85rem' }}>{s.name} — {s.risk_reasons.join(', ')}</div>
+                  ))}
+                </div>
+              )}
               <table className="vault-table" style={{ fontSize: '0.85rem' }}>
                 <thead>
-                  <tr><th>Student</th><th>Present</th><th>Absent</th><th>Late</th><th>Rate</th><th>Streak</th></tr>
+                  <tr><th>Student</th><th>Present</th><th>Absent</th><th>Late</th><th>Rate</th><th>Streak</th><th>Recent</th></tr>
                 </thead>
                 <tbody>
-                  {analytics.students.map((s: AttendanceAnalytics['students'][number]) => (
-                    <tr key={s.id}>
-                      <td>{s.name}</td>
+                  {[...analytics.students].sort((a, b) => Number(b.at_risk) - Number(a.at_risk) || a.attendance_rate - b.attendance_rate).map((s: AttendanceAnalytics['students'][number]) => (
+                    <tr key={s.id} style={{ background: s.at_risk ? '#fef2f2' : undefined }}>
+                      <td>{s.at_risk ? '⚠ ' : ''}{s.name}</td>
                       <td>{s.present}</td>
                       <td style={{ color: s.absent > 0 ? '#c53030' : undefined }}>{s.absent}</td>
                       <td>{s.late}</td>
                       <td style={{ color: s.attendance_rate >= 90 ? '#2d8a4e' : s.attendance_rate >= 70 ? '#c47f17' : '#c53030', fontWeight: 600 }}>{s.attendance_rate}%</td>
                       <td>{s.current_streak > 0 ? `${s.current_streak} days` : '—'}</td>
+                      <td style={{ fontFamily: 'monospace', letterSpacing: '0.15em' }} title="Most recent session first">
+                        {s.recent.map((st, i) => (
+                          <span key={i} style={{ color: st === 'present' ? '#2d8a4e' : st === 'absent' ? '#c53030' : st === 'late' ? '#c47f17' : '#2563eb' }}>{st[0].toUpperCase()}</span>
+                        ))}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {analytics.sessions.length > 0 && (
+                <details style={{ marginTop: '0.75rem' }}>
+                  <summary style={{ fontSize: '0.85rem', cursor: 'pointer', color: '#1F3864' }}>Session summaries</summary>
+                  <table className="vault-table" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    <thead><tr><th>Date</th><th>Present</th><th>Absent</th><th>Late</th><th>Excused</th></tr></thead>
+                    <tbody>
+                      {[...analytics.sessions].reverse().map((sess) => (
+                        <tr key={sess.id}>
+                          <td>{sess.date}</td><td>{sess.present}</td><td style={{ color: sess.absent > 0 ? '#c53030' : undefined }}>{sess.absent}</td><td>{sess.late}</td><td>{sess.excused}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
             </div>
           )}
           {sessions.map((s) => (
@@ -412,6 +466,13 @@ function GradingPage() {
   const [extractStatus, setExtractStatus] = useState('');
   const submissionFileInput = useRef<HTMLInputElement>(null);
 
+  // Batch essay queue: extract a stack of files, map each to a student,
+  // generate first-pass suggestions sequentially
+  interface BatchFile { fileName: string; text: string; chars: number; studentId: string; status: string; error?: string }
+  const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const batchInput = useRef<HTMLInputElement>(null);
+
   // Rubric creation state
   const [showNewRubric, setShowNewRubric] = useState(false);
   const [rubricName, setRubricName] = useState('');
@@ -474,6 +535,52 @@ function GradingPage() {
       setExtracting(false);
       if (submissionFileInput.current) submissionFileInput.current.value = '';
     }
+  };
+
+  const guessStudent = (fileName: string): string => {
+    const fn = fileName.toLowerCase().replace(/[^a-z]+/g, ' ');
+    let bestId = '';
+    let bestScore = 0;
+    for (const s of queue) {
+      const tokens = s.name.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+      const score = tokens.filter((t) => fn.includes(t)).length;
+      if (score > bestScore) { bestScore = score; bestId = s.id; }
+    }
+    return bestId;
+  };
+
+  const handleBatchFiles = async (files: FileList) => {
+    setBatchBusy(true);
+    const next: BatchFile[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        const result = await api.extractSubmissionText(file);
+        next.push({ fileName: file.name, text: result.text, chars: result.chars, studentId: guessStudent(file.name), status: 'ready' });
+      } catch (err) {
+        next.push({ fileName: file.name, text: '', chars: 0, studentId: '', status: 'error', error: err instanceof Error ? err.message : 'Extraction failed' });
+      }
+    }
+    setBatchFiles((prev) => [...prev, ...next]);
+    setBatchBusy(false);
+    if (batchInput.current) batchInput.current.value = '';
+  };
+
+  const runBatch = async () => {
+    setBatchBusy(true);
+    for (let i = 0; i < batchFiles.length; i++) {
+      const f = batchFiles[i];
+      if (f.status !== 'ready' || !f.studentId) continue;
+      setBatchFiles((prev) => prev.map((bf, j) => j === i ? { ...bf, status: 'generating' } : bf));
+      try {
+        await api.requestSuggestion(activeSession!.id, f.studentId, { submission_text: f.text });
+        setBatchFiles((prev) => prev.map((bf, j) => j === i ? { ...bf, status: 'done' } : bf));
+      } catch (err) {
+        setBatchFiles((prev) => prev.map((bf, j) => j === i ? { ...bf, status: 'error', error: err instanceof Error ? err.message : 'Suggestion failed' } : bf));
+      }
+    }
+    const q = await api.getGradingQueue(activeSession!.id);
+    setQueue(q);
+    setBatchBusy(false);
   };
 
   const requestSuggestions = async () => {
@@ -578,7 +685,37 @@ function GradingPage() {
       <div className="page">
         <button onClick={() => setActiveSession(null)} className="btn btn-secondary btn-small" style={{ marginBottom: '1rem' }}>Back</button>
         <h1>Grading: {activeSession.assignment?.name}</h1>
-        <a href={api.exportGrades(activeSession.id)} className="btn btn-secondary btn-small" style={{ textDecoration: 'none', marginBottom: '1rem', display: 'inline-block' }}>Export CSV</a>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <a href={api.exportGrades(activeSession.id)} className="btn btn-secondary btn-small" style={{ textDecoration: 'none' }}>Export CSV</a>
+          <button onClick={() => batchInput.current?.click()} disabled={batchBusy} className="btn btn-secondary btn-small">{batchBusy ? 'Working...' : 'Upload Essays (batch)'}</button>
+          <input ref={batchInput} type="file" multiple accept=".pdf,.docx,.md,.markdown,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: 'none' }} onChange={(e) => { if (e.target.files?.length) handleBatchFiles(e.target.files); }} />
+        </div>
+
+        {batchFiles.length > 0 && (
+          <div style={{ background: 'white', border: '1px solid #e5e5e5', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+            <h2 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Essay batch ({batchFiles.length})</h2>
+            <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.75rem' }}>Students were guessed from file names — fix any wrong assignments, then generate. Suggestions still need your review and approval per student.</p>
+            {batchFiles.map((f, i) => (
+              <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.35rem 0', flexWrap: 'wrap' }}>
+                <span style={{ flex: 2, minWidth: '140px', fontSize: '0.875rem' }}>{f.fileName}</span>
+                <span style={{ fontSize: '0.75rem', color: '#737373' }}>{f.chars > 0 ? `${f.chars.toLocaleString()} chars` : ''}</span>
+                <select value={f.studentId} disabled={f.status !== 'ready'} onChange={(e) => setBatchFiles((prev) => prev.map((bf, j) => j === i ? { ...bf, studentId: e.target.value } : bf))} style={{ flex: 1, minWidth: '140px' }}>
+                  <option value="">Assign student...</option>
+                  {queue.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: 4, background: f.status === 'done' ? '#dcfce7' : f.status === 'error' ? '#fee2e2' : f.status === 'generating' ? '#fef3c7' : '#f5f5f5' }}>
+                  {f.status === 'error' ? `error: ${f.error}` : f.status}
+                </span>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+              <button onClick={runBatch} disabled={batchBusy || !batchFiles.some((f) => f.status === 'ready' && f.studentId)} className="btn btn-primary btn-small">
+                Generate suggestions for {batchFiles.filter((f) => f.status === 'ready' && f.studentId).length} essays
+              </button>
+              <button onClick={() => setBatchFiles([])} disabled={batchBusy} className="btn btn-secondary btn-small">Clear</button>
+            </div>
+          </div>
+        )}
         <div className="attendance-grid">
           {queue.map((s) => (
             <div key={s.id} onClick={() => selectStudent(s)} className="attendance-row" style={{ background: s.grading_status === 'complete' ? '#dcfce7' : s.grading_status === 'in_progress' ? '#fef3c7' : '#fff', cursor: 'pointer' }}>

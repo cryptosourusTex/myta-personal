@@ -91,6 +91,7 @@ interface AttendanceAnalytics {
   sessions_count: number;
   session_dates: string[];
   course_attendance_rate: number;
+  at_risk_count: number;
   students: Array<{
     id: string;
     name: string;
@@ -100,6 +101,17 @@ interface AttendanceAnalytics {
     excused: number;
     attendance_rate: number;
     current_streak: number;
+    recent: string[];
+    at_risk: boolean;
+    risk_reasons: string[];
+  }>;
+  sessions: Array<{
+    id: string;
+    date: string;
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
   }>;
 }
 
