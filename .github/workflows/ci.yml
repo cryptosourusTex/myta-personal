@@ -31,6 +31,9 @@ jobs:
       - name: Build server
         run: npm run build --workspace=server
 
+      - name: Server tests
+        run: npm test
+
   docker:
     runs-on: ubuntu-latest
     steps:
