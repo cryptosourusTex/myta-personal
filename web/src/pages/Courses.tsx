@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import type { Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, AttendanceAnalytics, Rubric, Assignment, GradingSession, QueueItem, GradeItem } from '../api';
+import type { Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrResult, AttendanceAnalytics, Rubric, Assignment, GradingSession, QueueItem, GradeItem } from '../api';
 
 interface SpeechRecognitionEvent {
   results: { [index: number]: { [index: number]: { transcript: string } } };
@@ -147,6 +147,28 @@ export default function Courses() {
   );
 }
 
+// Downscale a photo before upload: handwriting stays readable at 1600px and
+// the base64 payload stays small enough for a quick local round-trip.
+function downscaleImage(file: File, maxDim: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas not supported')); return; }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
+    img.src = url;
+  });
+}
+
 // ---- Attendance Page (inline to keep routing simple) ----
 
 function AttendancePage() {
@@ -156,6 +178,10 @@ function AttendancePage() {
   const [recording, setRecording] = useState(false);
   const [voiceResult, setVoiceResult] = useState('');
   const [analytics, setAnalytics] = useState<AttendanceAnalytics | null>(null);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
+  const [ocrChecked, setOcrChecked] = useState<Set<string>>(new Set());
+  const photoInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (courseId) {
@@ -221,6 +247,43 @@ function AttendancePage() {
     recognition.start();
   };
 
+  const handlePhoto = async (file: File) => {
+    setOcrBusy(true);
+    setOcrResult(null);
+    setVoiceResult('');
+    try {
+      const image = await downscaleImage(file, 1600);
+      const result = await api.ocrAttendance(activeSession!.id, image);
+      setOcrResult(result);
+      setOcrChecked(new Set(result.matches.filter((m) => m.confidence === 'high').map((m) => m.record_id)));
+    } catch (err) {
+      setVoiceResult(err instanceof Error ? err.message : 'Photo OCR failed');
+    } finally {
+      setOcrBusy(false);
+      if (photoInput.current) photoInput.current.value = '';
+    }
+  };
+
+  const applyOcr = async () => {
+    if (!ocrResult) return;
+    for (const m of ocrResult.matches) {
+      if (ocrChecked.has(m.record_id)) {
+        await api.updateAttendanceRecord(m.record_id, { status: 'present', source: 'photo' });
+      }
+    }
+    setVoiceResult(`Marked ${ocrChecked.size} students present from photo`);
+    setOcrResult(null);
+    loadSession(activeSession!.id);
+  };
+
+  const toggleOcrCheck = (recordId: string) => {
+    setOcrChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordId)) next.delete(recordId); else next.add(recordId);
+      return next;
+    });
+  };
+
   const statusColors: Record<string, string> = {
     present: '#dcfce7', absent: '#fee2e2', late: '#fef3c7', excused: '#dbeafe',
   };
@@ -279,6 +342,8 @@ function AttendancePage() {
             {!activeSession.finalized && (
               <>
                 <button onClick={startVoice} disabled={recording} className="btn btn-secondary btn-small">{recording ? 'Listening...' : 'Voice'}</button>
+                <button onClick={() => photoInput.current?.click()} disabled={ocrBusy} className="btn btn-secondary btn-small">{ocrBusy ? 'Reading...' : 'Photo'}</button>
+                <input ref={photoInput} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhoto(f); }} />
                 <button onClick={finalize} className="btn btn-primary btn-small">Finalize</button>
               </>
             )}
@@ -287,6 +352,30 @@ function AttendancePage() {
           </div>
 
           {voiceResult && <div className="status-msg info" style={{ marginBottom: '0.75rem' }}>{voiceResult}</div>}
+
+          {ocrResult && (
+            <div style={{ background: 'white', border: '1px solid #e5e5e5', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+              <h2 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Sign-in sheet: {ocrResult.extracted.length} names read</h2>
+              <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.75rem' }}>Confirm who to mark present. Uncertain matches are unchecked — check them only if correct.</p>
+              {ocrResult.matches.map((m) => (
+                <label key={m.record_id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={ocrChecked.has(m.record_id)} onChange={() => toggleOcrCheck(m.record_id)} />
+                  <span style={{ fontWeight: 600 }}>{m.student_name}</span>
+                  <span style={{ fontSize: '0.8rem', color: '#666' }}>read as "{m.extracted_name}"</span>
+                  <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: 4, background: m.confidence === 'high' ? '#dcfce7' : m.confidence === 'medium' ? '#fef3c7' : '#fee2e2' }}>{m.confidence}</span>
+                </label>
+              ))}
+              {ocrResult.unmatched.length > 0 && (
+                <div style={{ fontSize: '0.85rem', color: '#c53030', marginTop: '0.5rem' }}>
+                  No roster match: {ocrResult.unmatched.join(', ')}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <button onClick={applyOcr} disabled={ocrChecked.size === 0} className="btn btn-primary btn-small">Mark {ocrChecked.size} present</button>
+                <button onClick={() => setOcrResult(null)} className="btn btn-secondary btn-small">Cancel</button>
+              </div>
+            </div>
+          )}
 
           <div className="attendance-grid">
             {activeSession.records?.map((r: AttendanceRecord) => (

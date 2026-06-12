@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
+import { getConfig } from '../config.js';
 import { nanoid } from 'nanoid';
+import OpenAI from 'openai';
 
 interface AttendanceRecord {
   id: string;
@@ -206,6 +208,160 @@ attendanceRoutes.post('/sessions/:id/voice', async (c) => {
   }
 
   return c.json({ actions_taken: [], unmatched: [command] });
+});
+
+// Photo OCR of a sign-in sheet: extract names with a vision model, propose
+// roster matches. Does NOT modify records — the professor confirms in the UI.
+attendanceRoutes.post('/sessions/:id/ocr', async (c) => {
+  const sessionId = c.req.param('id');
+  const { image } = await c.req.json();
+  if (!image || typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return c.json({ error: 'image must be a data URL (data:image/...)' }, 400);
+  }
+  const db = getDb();
+
+  const session = db.prepare('SELECT id FROM attendance_session WHERE id = ?').get(sessionId);
+  if (!session) return c.json({ error: 'Session not found' }, 404);
+
+  const records = db.prepare(`
+    SELECT ar.id, ar.student_id, s.name
+    FROM attendance_record ar
+    JOIN student s ON s.id = ar.student_id
+    WHERE ar.session_id = ?
+    ORDER BY s.name
+  `).all(sessionId) as AttendanceRecord[];
+  if (records.length === 0) return c.json({ error: 'Session has no roster records' }, 400);
+
+  const getVal = (key: string) => {
+    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value;
+  };
+  const endpoint = getVal('llm_endpoint') || getConfig().llm.endpoint;
+  const visionModel = getVal('vision_model') || getVal('llm_model') || getConfig().llm.model;
+  const textModel = getVal('llm_model') || getConfig().llm.model;
+  const apiKey = getVal('llm_api_key') || getConfig().llm.api_key || 'none';
+  const client = new OpenAI({ baseURL: endpoint, apiKey });
+
+  let rawText: string;
+  try {
+    const visionResponse = await client.chat.completions.create({
+      model: visionModel,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'This is a photo of a class sign-in sheet with handwritten names. List every name you can read, one per line. Output only the names — no numbering, no commentary. If a line is illegible, skip it.' },
+          { type: 'image_url', image_url: { url: image } },
+        ],
+      }],
+      max_tokens: 1000,
+      temperature: 0,
+    });
+    rawText = visionResponse.choices[0]?.message?.content || '';
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: `Vision model failed: ${message}. Is a vision-capable model (e.g. llama3.2-vision) configured?` }, 502);
+  }
+
+  if (!rawText.trim()) {
+    return c.json({ extracted: [], matches: [], unmatched: [], model: visionModel });
+  }
+
+  // Vision models rarely honor "one per line" — they return prose, comma
+  // lists, quotes, commentary. The text model gets the raw output and does
+  // extraction + roster matching in one pass; crude splitting is the fallback.
+  const roster = records.map((r) => r.name ?? '');
+  let llmPairs: Array<{ extracted: string; roster_name: string | null; confidence: string }> | null = null;
+  try {
+    const matchResponse = await client.chat.completions.create({
+      model: textModel,
+      messages: [{
+        role: 'user',
+        content: `Below is raw OCR output from a photo of a handwritten class sign-in sheet, followed by the class roster. Extract every student name from the OCR output and match it to the roster. Handwriting OCR is noisy: expect misspellings, partial names, nicknames (e.g. "Mike" for "Michael"), accents added or dropped, and surrounding commentary that is not a name.
+
+Raw OCR output:
+"""
+${rawText}
+"""
+
+Roster:
+${roster.map((n) => `- ${n}`).join('\n')}
+
+Reply with ONLY a JSON array, one object per name found in the OCR output:
+[{"extracted": "...", "roster_name": "..." or null, "confidence": "high" | "medium" | "low"}]
+"extracted" is the name as it appears on the sheet. Use null for roster_name when no roster entry plausibly matches. Never match one roster name to two extracted names unless the sheet truly repeats it. Ignore OCR text that is clearly not a name (titles, dates, commentary).`,
+      }],
+      max_tokens: 1500,
+      temperature: 0,
+    });
+    const text = matchResponse.choices[0]?.message?.content || '';
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as Array<{ extracted: string; roster_name: string | null; confidence: string }>;
+      llmPairs = parsed
+        .filter((p) => p && typeof p.extracted === 'string' && p.extracted.trim().length > 1)
+        .map((p) => ({
+          extracted: p.extracted.trim(),
+          roster_name: typeof p.roster_name === 'string' ? p.roster_name : null,
+          confidence: ['high', 'medium', 'low'].includes(p.confidence) ? p.confidence : 'low',
+        }));
+    }
+  } catch {
+    llmPairs = null;
+  }
+
+  // Fallback when the matching call fails: split the raw text into name-like
+  // fragments and Levenshtein-match against the roster.
+  const candidates: Array<{ extracted: string; roster_name: string | null; confidence: string }> = llmPairs ?? rawText
+    .split(/\n|,|\band\b|;/)
+    .map((s) => s.replace(/^[\s\d.\-*•"']+|[\s"'.]+$/g, '').trim())
+    .filter((s) => s.length > 1 && s.length < 60)
+    .map((s) => ({ extracted: s, roster_name: null, confidence: 'fallback' }));
+
+  const matches: Array<{ extracted_name: string; record_id: string; student_id: string; student_name: string; confidence: string }> = [];
+  const unmatched: string[] = [];
+  const claimed = new Set<string>();
+  const extracted = candidates.map((p) => p.extracted);
+
+  for (const pair of candidates) {
+    let target: AttendanceRecord | undefined;
+    let confidence = 'low';
+
+    if (pair.roster_name) {
+      target = records.find((r) => r.name === pair.roster_name && !claimed.has(r.id));
+      if (target) confidence = pair.confidence;
+    }
+    if (!target) {
+      target = records.find((r) =>
+        !claimed.has(r.id) && (r.name ?? '').length > 4 &&
+        pair.extracted.toLowerCase().includes((r.name ?? '').toLowerCase()));
+      if (target) confidence = 'high';
+    }
+    if (!target) {
+      let bestDist = Infinity;
+      let best: AttendanceRecord | undefined;
+      for (const r of records) {
+        if (claimed.has(r.id)) continue;
+        const dist = fuzzyMatch(r.name ?? '', pair.extracted);
+        if (dist < bestDist) { bestDist = dist; best = r; }
+      }
+      if (best && bestDist <= 3) {
+        target = best;
+        confidence = bestDist <= 1 ? 'high' : 'medium';
+      }
+    }
+
+    if (target) {
+      claimed.add(target.id);
+      matches.push({ extracted_name: pair.extracted, record_id: target.id, student_id: target.student_id, student_name: target.name ?? '', confidence });
+    } else {
+      unmatched.push(pair.extracted);
+    }
+  }
+
+  db.prepare('INSERT INTO audit_log (id, action, entity_type, entity_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(nanoid(), 'attendance_ocr', 'attendance_session', sessionId, `extracted=${extracted.length} matched=${matches.length} unmatched=${unmatched.length} model=${visionModel}`, Date.now());
+
+  return c.json({ extracted, matches, unmatched, model: visionModel });
 });
 
 // Levenshtein distance for fuzzy name matching

@@ -9,6 +9,7 @@ interface Config {
   accessibility: { voice_input: boolean; voice_readback: boolean };
   grading_model: string;
   qa_model: string;
+  vision_model: string;
   setup_complete: boolean;
 }
 
@@ -62,6 +63,21 @@ interface AttendanceRecord {
 interface VoiceResult {
   actions_taken: Array<{ student_id?: string; name?: string; new_status?: string; action?: string; text?: string }>;
   unmatched: string[];
+}
+
+interface OcrMatch {
+  extracted_name: string;
+  record_id: string;
+  student_id: string;
+  student_name: string;
+  confidence: string;
+}
+
+interface OcrResult {
+  extracted: string[];
+  matches: OcrMatch[];
+  unmatched: string[];
+  model: string;
 }
 
 interface AttendanceAnalytics {
@@ -208,6 +224,7 @@ export const api = {
   finalizeAttendance: (id: string) => request<{ finalized: boolean }>(`/attendance/sessions/${id}/finalize`, { method: 'POST' }),
   exportAttendance: (id: string) => `${BASE}/attendance/sessions/${id}/export`,
   processVoiceCommand: (sessionId: string, command: string) => request<VoiceResult>(`/attendance/sessions/${sessionId}/voice`, { method: 'POST', body: JSON.stringify({ command }) }),
+  ocrAttendance: (sessionId: string, image: string) => request<OcrResult>(`/attendance/sessions/${sessionId}/ocr`, { method: 'POST', body: JSON.stringify({ image }) }),
   getAttendanceAnalytics: (courseId: string) => request<AttendanceAnalytics>(`/attendance/analytics/${courseId}`),
   // Vault
   getVaultAssets: (courseId?: string) => request<VaultAsset[]>(`/vault/assets${courseId ? `?course_id=${courseId}` : ''}`),
@@ -232,4 +249,4 @@ export const api = {
   getAuditLog: (params: string) => request<AuditEntry[]>(`/audit?${params}`),
 };
 
-export type { Config, Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, AttendanceAnalytics, VaultAsset, Rubric, GradingSession, Assignment, QueueItem, GradeItem, AssistantResponse, AuditEntry };
+export type { Config, Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrMatch, OcrResult, AttendanceAnalytics, VaultAsset, Rubric, GradingSession, Assignment, QueueItem, GradeItem, AssistantResponse, AuditEntry };

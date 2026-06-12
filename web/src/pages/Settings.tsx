@@ -20,6 +20,7 @@ export default function Settings() {
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; owned_by: string }>>([])
   const [gradingModel, setGradingModel] = useState('');
   const [qaModel, setQaModel] = useState('');
+  const [visionModel, setVisionModel] = useState('');
 
   useEffect(() => {
     api.getConfig().then((cfg) => {
@@ -29,6 +30,7 @@ export default function Settings() {
       setEncryption(cfg.storage.encryption);
       setGradingModel(cfg.grading_model || '');
       setQaModel(cfg.qa_model || '');
+      setVisionModel(cfg.vision_model || '');
     }).catch(() => {});
     api.getModels().then((result) => {
       if (result.ok && result.models) setAvailableModels(result.models);
@@ -45,6 +47,7 @@ export default function Settings() {
       storage_encryption: String(encryption),
       ...(gradingModel ? { grading_model: gradingModel } : {}),
       ...(qaModel ? { qa_model: qaModel } : {}),
+      ...(visionModel ? { vision_model: visionModel } : {}),
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -94,6 +97,12 @@ export default function Settings() {
               </label>
               <label style={{ flex: 1, minWidth: '200px' }}>Q&A Assistant
                 <select value={qaModel} onChange={(e) => setQaModel(e.target.value)}>
+                  <option value="">Use default ({llmModel})</option>
+                  {availableModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                </select>
+              </label>
+              <label style={{ flex: 1, minWidth: '200px' }}>Photo OCR (vision)
+                <select value={visionModel} onChange={(e) => setVisionModel(e.target.value)}>
                   <option value="">Use default ({llmModel})</option>
                   {availableModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
                 </select>
