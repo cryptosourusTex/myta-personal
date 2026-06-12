@@ -3,13 +3,14 @@ const BASE = '/api';
 // --- Interfaces ---
 
 interface Config {
-  llm: { endpoint: string; model: string; api_key: string; context_window: number };
+  llm: { endpoint: string; model: string; api_key: string; context_window: number; endpoint_is_local: boolean };
   canvas: { domain: string };
   storage: { path: string; encryption: boolean };
   accessibility: { voice_input: boolean; voice_readback: boolean };
   grading_model: string;
   qa_model: string;
   vision_model: string;
+  allow_remote_student_data: boolean;
   setup_complete: boolean;
 }
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { getConfig } from '../config.js';
+import { studentDataGuard } from '../ferpa.js';
 import { nanoid } from 'nanoid';
 import OpenAI from 'openai';
 
@@ -231,6 +232,9 @@ attendanceRoutes.post('/sessions/:id/ocr', async (c) => {
     ORDER BY s.name
   `).all(sessionId) as AttendanceRecord[];
   if (records.length === 0) return c.json({ error: 'Session has no roster records' }, 400);
+
+  const guard = studentDataGuard();
+  if (!guard.allowed) return c.json({ error: guard.reason }, 403);
 
   const getVal = (key: string) => {
     const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key) as { value: string } | undefined;

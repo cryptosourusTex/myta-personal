@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import OpenAI from 'openai';
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
+import { studentDataGuard } from '../ferpa.js';
 
 interface Assignment {
   id: string;
@@ -284,6 +285,9 @@ gradingRoutes.post('/grading/sessions/:sessionId/suggest/:studentId', async (c) 
 
   const session = db.prepare('SELECT * FROM grading_session WHERE id = ?').get(sessionId) as GradingSession | undefined;
   if (!session) return c.json({ error: 'Session not found' }, 404);
+
+  const guard = studentDataGuard();
+  if (!guard.allowed) return c.json({ error: guard.reason }, 403);
 
   const assignment = db.prepare('SELECT * FROM assignment WHERE id = ?').get(session.assignment_id) as Assignment | undefined;
   const criteria = db.prepare('SELECT * FROM rubric_criterion WHERE rubric_id = ? ORDER BY sort_order').all(assignment!.rubric_id!) as RubricCriterion[];

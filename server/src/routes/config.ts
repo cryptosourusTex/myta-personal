@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { getConfig } from '../config.js';
+import { isLocalEndpoint } from '../ferpa.js';
 import OpenAI from 'openai';
 
 interface ConfigRow {
@@ -29,6 +30,7 @@ configRoutes.get('/', (c) => {
       model: stored.llm_model || getConfig().llm.model,
       has_api_key: !!(stored.llm_api_key || getConfig().llm.api_key),
       context_window: parseInt(stored.llm_context_window || '') || getConfig().llm.context_window,
+      endpoint_is_local: isLocalEndpoint(stored.llm_endpoint || getConfig().llm.endpoint),
     },
     canvas: {
       domain: stored.canvas_domain || getConfig().canvas.domain,
@@ -45,6 +47,7 @@ configRoutes.get('/', (c) => {
     grading_model: stored.grading_model || '',
     qa_model: stored.qa_model || '',
     vision_model: stored.vision_model || '',
+    allow_remote_student_data: stored.allow_remote_student_data === 'true',
     setup_complete: stored.setup_complete === 'true',
   });
 });
@@ -61,6 +64,7 @@ configRoutes.put('/', async (c) => {
     'storage_encryption',
     'setup_complete',
     'grading_model', 'qa_model', 'vision_model',
+    'allow_remote_student_data',
   ];
 
   const updates: string[] = [];

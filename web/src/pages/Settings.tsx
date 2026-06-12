@@ -21,6 +21,8 @@ export default function Settings() {
   const [gradingModel, setGradingModel] = useState('');
   const [qaModel, setQaModel] = useState('');
   const [visionModel, setVisionModel] = useState('');
+  const [endpointIsLocal, setEndpointIsLocal] = useState(true);
+  const [allowRemoteStudentData, setAllowRemoteStudentData] = useState(false);
 
   useEffect(() => {
     api.getConfig().then((cfg) => {
@@ -31,6 +33,8 @@ export default function Settings() {
       setGradingModel(cfg.grading_model || '');
       setQaModel(cfg.qa_model || '');
       setVisionModel(cfg.vision_model || '');
+      setEndpointIsLocal(cfg.llm.endpoint_is_local);
+      setAllowRemoteStudentData(cfg.allow_remote_student_data);
     }).catch(() => {});
     api.getModels().then((result) => {
       if (result.ok && result.models) setAvailableModels(result.models);
@@ -48,6 +52,7 @@ export default function Settings() {
       ...(gradingModel ? { grading_model: gradingModel } : {}),
       ...(qaModel ? { qa_model: qaModel } : {}),
       ...(visionModel ? { vision_model: visionModel } : {}),
+      allow_remote_student_data: String(allowRemoteStudentData),
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -113,6 +118,26 @@ export default function Settings() {
         <label>API Key <span className="optional">(leave blank to keep current)</span><input type="password" value={llmApiKey} onChange={(e) => setLlmApiKey(e.target.value)} placeholder="unchanged" /></label>
         <button onClick={testLLM} disabled={llmTesting} className="btn btn-primary">{llmTesting ? 'Testing...' : 'Test Connection'}</button>
         {llmStatus && <div className={`status-msg ${llmStatus.ok ? 'success' : 'error'}`}>{llmStatus.ok ? `Connected to ${llmStatus.model} (${llmStatus.latency_ms}ms)` : `Error: ${llmStatus.error}`}</div>}
+      </section>
+
+      <section className="settings-section">
+        <h2>Student Data Protection (FERPA)</h2>
+        {endpointIsLocal ? (
+          <div className="status-msg success">
+            Your LLM endpoint is local — student names, submissions, and attendance photos never leave your machine or private network.
+          </div>
+        ) : (
+          <div className="status-msg error">
+            Your LLM endpoint is NOT local. Features that send student data to the AI (grading suggestions, photo attendance) are blocked unless you explicitly allow it below.
+          </div>
+        )}
+        {!endpointIsLocal && (
+          <label className="toggle-label" style={{ marginTop: '0.5rem' }}>
+            <input type="checkbox" checked={allowRemoteStudentData} onChange={(e) => setAllowRemoteStudentData(e.target.checked)} />
+            <span>Allow student data to be sent to this remote endpoint. I understand this may violate FERPA unless my institution has an agreement covering this provider.</span>
+          </label>
+        )}
+        <p className="encryption-hint">See FERPA.md in the project repository for exactly what data flows where.</p>
       </section>
 
       <section className="settings-section">
