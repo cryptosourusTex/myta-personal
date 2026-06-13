@@ -44,7 +44,7 @@ What three concurrent PoliSci sections plus the JD class need daily.
 
 Ordered roughly by expressed interest; none are commitments.
 
-- **Embeddings/RAG search over the vault** for lecture and prep planning Q&A, using local embedding models via Ollama.
+- **Embeddings/RAG search over the vault** — *shipped 2026-06-12.* Index vault documents (extract → chunk → embed via local `nomic-embed-text`), store vectors in SQLite, retrieve top chunks by cosine similarity to answer lecture/prep questions. Also fixed the assistant's inability to read PDF/Word files. FERPA-guarded; same local-only guarantee.
 - **Agentic batch grading** — grade an entire stack unattended, professor reviews the suggestion queue afterward. Builds on item 5.
 - **Scanned-image and PowerPoint ingestion** for the vault and Q&A (local OCR via the same vision model as attendance).
 - **Realtime voice interaction** beyond the current Web Speech attendance commands.

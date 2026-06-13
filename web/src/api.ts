@@ -10,6 +10,7 @@ interface Config {
   grading_model: string;
   qa_model: string;
   vision_model: string;
+  embed_model: string;
   allow_remote_student_data: boolean;
   setup_complete: boolean;
 }
@@ -185,6 +186,15 @@ interface AssistantResponse {
   source: string;
   confidence: string;
   model: string;
+  excerpts?: Array<{ asset_name: string; score: number; preview: string }>;
+}
+
+interface IndexStatus {
+  id: string;
+  name: string;
+  encrypted: number;
+  chunk_count: number;
+  indexed_at: number | null;
 }
 
 interface AuditEntry {
@@ -274,8 +284,12 @@ export const api = {
   exportCourseGrades: (courseId: string) => `${BASE}/grading/export/course/${courseId}`,
   // Q&A
   askAssistant: (data: { question: string; course_id: string | null; document_contents: Array<{ id: string; name: string; text: string }> }) => request<AssistantResponse>('/assistant/answer', { method: 'POST', body: JSON.stringify(data) }),
+  searchAssistant: (data: { question: string; course_id: string | null; top_k?: number }) => request<AssistantResponse>('/assistant/search', { method: 'POST', body: JSON.stringify(data) }),
+  // Vault indexing
+  indexAsset: (id: string) => request<{ id: string; name: string; chunks: number; model: string }>(`/vault/assets/${id}/index`, { method: 'POST' }),
+  getIndexStatus: () => request<IndexStatus[]>('/vault/index/status'),
   // Audit
   getAuditLog: (params: string) => request<AuditEntry[]>(`/audit?${params}`),
 };
 
-export type { Config, Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrMatch, OcrResult, ExtractedText, AttendanceAnalytics, VaultAsset, Rubric, GradingSession, Assignment, QueueItem, GradeItem, AssistantResponse, AuditEntry };
+export type { Config, Course, Student, AttendanceSession, AttendanceRecord, VoiceResult, OcrMatch, OcrResult, ExtractedText, AttendanceAnalytics, VaultAsset, IndexStatus, Rubric, GradingSession, Assignment, QueueItem, GradeItem, AssistantResponse, AuditEntry };

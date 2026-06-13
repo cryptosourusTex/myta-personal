@@ -21,6 +21,7 @@ export default function Settings() {
   const [gradingModel, setGradingModel] = useState('');
   const [qaModel, setQaModel] = useState('');
   const [visionModel, setVisionModel] = useState('');
+  const [embedModel, setEmbedModel] = useState('');
   const [endpointIsLocal, setEndpointIsLocal] = useState(true);
   const [allowRemoteStudentData, setAllowRemoteStudentData] = useState(false);
 
@@ -33,6 +34,7 @@ export default function Settings() {
       setGradingModel(cfg.grading_model || '');
       setQaModel(cfg.qa_model || '');
       setVisionModel(cfg.vision_model || '');
+      setEmbedModel(cfg.embed_model || '');
       setEndpointIsLocal(cfg.llm.endpoint_is_local);
       setAllowRemoteStudentData(cfg.allow_remote_student_data);
     }).catch(() => {});
@@ -52,6 +54,7 @@ export default function Settings() {
       ...(gradingModel ? { grading_model: gradingModel } : {}),
       ...(qaModel ? { qa_model: qaModel } : {}),
       ...(visionModel ? { vision_model: visionModel } : {}),
+      ...(embedModel ? { embed_model: embedModel } : {}),
       allow_remote_student_data: String(allowRemoteStudentData),
     });
     setSaved(true);
@@ -109,6 +112,12 @@ export default function Settings() {
               <label style={{ flex: 1, minWidth: '200px' }}>Photo OCR (vision)
                 <select value={visionModel} onChange={(e) => setVisionModel(e.target.value)}>
                   <option value="">Use default ({llmModel})</option>
+                  {availableModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                </select>
+              </label>
+              <label style={{ flex: 1, minWidth: '200px' }}>Document search (embeddings)
+                <select value={embedModel} onChange={(e) => setEmbedModel(e.target.value)}>
+                  <option value="">Default (nomic-embed-text)</option>
                   {availableModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
                 </select>
               </label>

@@ -14,6 +14,7 @@ export default function Assistant() {
   const [error, setError] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [mode, setMode] = useState<'search' | 'select'>('search');
 
   useEffect(() => {
     api.getCourses().then(setCourses).catch(() => {});
@@ -59,19 +60,21 @@ export default function Assistant() {
   };
 
   const ask = async () => {
-    if (!question.trim() || selectedAssets.size === 0) return;
+    if (!question.trim()) return;
+    if (mode === 'select' && selectedAssets.size === 0) return;
     setLoading(true);
     setError('');
     setResult(null);
     setAcknowledged(false);
 
     try {
-      const docContents = await loadDocumentContents();
-      const answer = await api.askAssistant({
-        question,
-        course_id: selectedCourse || null,
-        document_contents: docContents,
-      });
+      const answer = mode === 'search'
+        ? await api.searchAssistant({ question, course_id: selectedCourse || null })
+        : await api.askAssistant({
+            question,
+            course_id: selectedCourse || null,
+            document_contents: await loadDocumentContents(),
+          });
       setResult(answer);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -116,7 +119,7 @@ export default function Assistant() {
         Drafts answers from your course documents. Never sends — only drafts for you to review.
       </p>
 
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label style={{ flex: 1, minWidth: '200px' }}>
           Course (optional)
           <select value={selectedCourse} onChange={(e) => setSelectedCourse(e.target.value)}>
@@ -124,23 +127,36 @@ export default function Assistant() {
             {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
+        <label style={{ flex: 1, minWidth: '200px' }}>
+          Mode
+          <select value={mode} onChange={(e) => setMode(e.target.value as 'search' | 'select')}>
+            <option value="search">Semantic search (indexed documents)</option>
+            <option value="select">Pick specific documents</option>
+          </select>
+        </label>
       </div>
 
-      <div style={{ marginBottom: '1rem' }}>
-        <div style={{ fontWeight: 500, fontSize: '0.875rem', marginBottom: '0.25rem' }}>Documents to search</div>
-        {assets.length === 0 ? (
-          <p style={{ color: '#737373', fontSize: '0.875rem' }}>No documents in vault. Upload files first.</p>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {assets.map((a) => (
-              <label key={a.id} className="toggle-label" style={{ background: selectedAssets.has(a.id) ? '#dbeafe' : 'white', border: '1px solid #e5e5e5', borderRadius: 6, padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}>
-                <input type="checkbox" checked={selectedAssets.has(a.id)} onChange={() => toggleAsset(a.id)} />
-                <span>{a.name}</span>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
+      {mode === 'search' ? (
+        <p style={{ color: '#737373', fontSize: '0.8rem', marginBottom: '1rem' }}>
+          Searches across all documents you've indexed in the Vault and answers from the most relevant passages.
+        </p>
+      ) : (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ fontWeight: 500, fontSize: '0.875rem', marginBottom: '0.25rem' }}>Documents to search</div>
+          {assets.length === 0 ? (
+            <p style={{ color: '#737373', fontSize: '0.875rem' }}>No documents in vault. Upload files first.</p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {assets.map((a) => (
+                <label key={a.id} className="toggle-label" style={{ background: selectedAssets.has(a.id) ? '#dbeafe' : 'white', border: '1px solid #e5e5e5', borderRadius: 6, padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}>
+                  <input type="checkbox" checked={selectedAssets.has(a.id)} onChange={() => toggleAsset(a.id)} />
+                  <span>{a.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ marginBottom: '1rem' }}>
         <label>
@@ -154,7 +170,7 @@ export default function Assistant() {
         </label>
       </div>
 
-      <button onClick={ask} disabled={loading || !question.trim() || selectedAssets.size === 0} className="btn btn-primary">
+      <button onClick={ask} disabled={loading || !question.trim() || (mode === 'select' && selectedAssets.size === 0)} className="btn btn-primary">
         {loading ? 'Drafting...' : 'Draft Answer'}
       </button>
 
@@ -181,6 +197,16 @@ export default function Assistant() {
           </div>
           <div style={{ fontSize: '0.95rem', lineHeight: 1.6, marginBottom: '0.75rem' }}>{result.draft}</div>
           <div style={{ fontSize: '0.8rem', color: '#737373' }}>Source: {result.source}</div>
+          {result.excerpts && result.excerpts.length > 0 && (
+            <details style={{ marginTop: '0.5rem' }}>
+              <summary style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#1F3864' }}>Retrieved passages ({result.excerpts.length})</summary>
+              {result.excerpts.map((ex, i) => (
+                <div key={i} style={{ fontSize: '0.78rem', color: '#555', marginTop: '0.4rem', paddingLeft: '0.5rem', borderLeft: '2px solid #e5e5e5' }}>
+                  <strong>{ex.asset_name}</strong> <span style={{ color: '#999' }}>({ex.score})</span><br />{ex.preview}…
+                </div>
+              ))}
+            </details>
+          )}
         </div>
       )}
     </div>

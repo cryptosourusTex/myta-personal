@@ -9,6 +9,7 @@ test('config defaults: local endpoint, no remote-data override', async () => {
   assert.equal(cfg.body.llm.endpoint_is_local, true);
   assert.equal(cfg.body.allow_remote_student_data, false);
   assert.equal(cfg.body.vision_model, '');
+  assert.equal(cfg.body.embed_model, '');
 });
 
 test('config PUT honors the key allowlist', async () => {

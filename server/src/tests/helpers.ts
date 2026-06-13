@@ -6,6 +6,8 @@ import configRoutes from '../routes/config.js';
 import canvasRoutes from '../routes/canvas.js';
 import attendanceRoutes from '../routes/attendance.js';
 import gradingRoutes from '../routes/grading.js';
+import vaultRoutes from '../routes/vault.js';
+import assistantRoutes from '../routes/assistant.js';
 
 // Each test file runs in its own process (node --test isolation), so setting
 // DB_PATH here gives every file a fresh throwaway database. The db module
@@ -18,6 +20,8 @@ export function makeApp(): Hono {
   app.route('/api', canvasRoutes);
   app.route('/api/attendance', attendanceRoutes);
   app.route('/api', gradingRoutes);
+  app.route('/api/vault', vaultRoutes);
+  app.route('/api/assistant', assistantRoutes);
   return app;
 }
 

@@ -126,6 +126,24 @@ CREATE TABLE IF NOT EXISTS vault_asset (
   created_at  INTEGER NOT NULL
 );
 
+-- Embedded chunks of vault documents, for semantic (RAG) search.
+-- embedding is a packed Float32 vector stored as a BLOB; cosine similarity is
+-- computed in the app layer. Rows are deleted and rebuilt when an asset is
+-- re-indexed, and cascade-deleted with their asset.
+CREATE TABLE IF NOT EXISTS doc_chunk (
+  id          TEXT PRIMARY KEY,
+  asset_id    TEXT NOT NULL REFERENCES vault_asset(id) ON DELETE CASCADE,
+  course_id   TEXT,
+  chunk_index INTEGER NOT NULL,
+  text        TEXT NOT NULL,
+  embedding   BLOB NOT NULL,
+  dim         INTEGER NOT NULL,
+  model       TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_doc_chunk_asset ON doc_chunk(asset_id);
+CREATE INDEX IF NOT EXISTS idx_doc_chunk_course ON doc_chunk(course_id);
+
 -- Append-only audit log
 CREATE TABLE IF NOT EXISTS audit_log (
   id          TEXT PRIMARY KEY,

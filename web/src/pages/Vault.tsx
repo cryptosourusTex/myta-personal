@@ -24,6 +24,8 @@ export default function Vault() {
   const [keyBackedUp, setKeyBackedUp] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [indexState, setIndexState] = useState<Record<string, number>>({});
+  const [indexing, setIndexing] = useState<string>('');
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -44,6 +46,23 @@ export default function Vault() {
 
   const loadAssets = () => {
     api.getVaultAssets().then(setAssets).catch(() => {});
+    api.getIndexStatus().then((rows) => {
+      const map: Record<string, number> = {};
+      for (const r of rows) map[r.id] = r.chunk_count;
+      setIndexState(map);
+    }).catch(() => {});
+  };
+
+  const handleIndex = async (asset: VaultAsset) => {
+    setIndexing(asset.id);
+    setError('');
+    try {
+      const result = await api.indexAsset(asset.id);
+      setIndexState((prev) => ({ ...prev, [asset.id]: result.chunks }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Indexing failed');
+    }
+    setIndexing('');
   };
 
   const setupKey = async () => {
@@ -200,6 +219,7 @@ export default function Vault() {
               <th>Name</th>
               <th>Size</th>
               <th>Encrypted</th>
+              <th>Search index</th>
               <th>Uploaded</th>
               <th></th>
             </tr>
@@ -210,6 +230,17 @@ export default function Vault() {
                 <td>{a.name}</td>
                 <td>{formatSize(a.size_bytes)}</td>
                 <td>{a.encrypted ? 'Yes' : 'No'}</td>
+                <td>
+                  {a.encrypted ? (
+                    <span style={{ fontSize: '0.8rem', color: '#737373' }} title="Encrypted files can't be indexed">—</span>
+                  ) : indexState[a.id] > 0 ? (
+                    <span style={{ fontSize: '0.8rem', color: '#166534' }}>✓ {indexState[a.id]} chunks</span>
+                  ) : (
+                    <button onClick={() => handleIndex(a)} disabled={indexing === a.id} className="btn btn-small btn-secondary">
+                      {indexing === a.id ? 'Indexing...' : 'Index'}
+                    </button>
+                  )}
+                </td>
                 <td>{new Date(a.created_at).toLocaleDateString()}</td>
                 <td>
                   <button onClick={() => handleDownload(a)} className="btn btn-small btn-secondary">Download</button>

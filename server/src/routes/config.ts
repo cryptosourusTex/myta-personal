@@ -47,6 +47,7 @@ configRoutes.get('/', (c) => {
     grading_model: stored.grading_model || '',
     qa_model: stored.qa_model || '',
     vision_model: stored.vision_model || '',
+    embed_model: stored.embed_model || '',
     allow_remote_student_data: stored.allow_remote_student_data === 'true',
     setup_complete: stored.setup_complete === 'true',
   });
@@ -63,7 +64,7 @@ configRoutes.put('/', async (c) => {
     'canvas_domain', 'canvas_token',
     'storage_encryption',
     'setup_complete',
-    'grading_model', 'qa_model', 'vision_model',
+    'grading_model', 'qa_model', 'vision_model', 'embed_model',
     'allow_remote_student_data',
   ];
 
